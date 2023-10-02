@@ -22,7 +22,8 @@
   "dependencies": {
     "@iobroker/adapter-core": "^3.0.3",
     "axios": "^1.5.1",
-    "json2iob": "^2.4.8"
+    "json2iob": "^2.4.8",
+    "strict-uri-encode": "^2.0.0"
   },
   "devDependencies": {
     "@iobroker/testing": "^4.1.0",

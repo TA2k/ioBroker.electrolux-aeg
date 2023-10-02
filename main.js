@@ -7,9 +7,10 @@
 // The adapter-core module gives you access to the core ioBroker functions
 // you need to create an adapter
 const utils = require('@iobroker/adapter-core');
-const axios = require('axios').defaults;
+const axios = require('axios').default;
 const crypto = require('crypto');
 const Json2iob = require('json2iob');
+const strictUriEncode = require('strict-uri-encode');
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -59,31 +60,28 @@ class ElectroluxAeg extends utils.Adapter {
 
     await this.login();
 
-    if (this.session.access_token) {
+    if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(
-        async () => {
-          await this.updateDevices();
-        },
-        this.config.interval * 60 * 1000,
-      );
+      this.updateInterval = setInterval(async () => {
+        await this.updateDevices();
+      }, this.config.interval * 60 * 1000);
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
-    if (this.session.expires_in) {
-      expireTimeout = this.session.expires_in * 1000;
+    if (this.session.expiresIn) {
+      expireTimeout = this.session.expiresIn * 1000;
     }
     this.refreshTokenInterval = setInterval(() => {
       this.refreshToken();
     }, expireTimeout);
   }
-  async createSignature(secret, method, url, parameters) {
+  createSignature(secret, method, url, parameters) {
     const parameterNames = Object.keys(parameters)
       .sort()
-      .map((key) => `${key}=${encodeURI(parameters[key])}`)
+      .map((key) => `${key}=${strictUriEncode(parameters[key])}`)
       .join('&');
 
-    const postData = [method.toUpperCase(), encodeURI(url), encodeURI(parameterNames)].join('&');
+    const postData = [method.toUpperCase(), strictUriEncode(url), strictUriEncode(parameterNames)].join('&');
 
     const key = Buffer.from(secret, 'base64');
     const payload = Buffer.from(postData, 'utf-8');
@@ -119,21 +117,26 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
+    if (!loginResponse) {
+      this.log.error('Login failed #1');
+      this.setState('info.connection', false, true);
 
-    const data = {
+      return;
+    }
+
+    let data = {
       apiKey: this.types[this.config.type].apikey,
       fields: 'country',
       format: 'json',
-
       httpStatusCodes: 'true',
       nonce: Date.now(),
-      oauth_token: loginResponse.sessionToken,
+      oauth_token: loginResponse.sessionInfo.sessionToken,
       sdk: 'Android_6.2.1',
-
       targetEnv: 'mobile',
       timestamp: Date.now(),
     };
-    data.sig = this.createSignature(loginResponse.sessionSecret, 'POST', 'accounts.getJWT', data);
+    data.sig = this.createSignature(loginResponse.sessionInfo.sessionSecret, 'POST', 'https://accounts.eu1.gigya.com/accounts.getJWT', data);
+
     const jwt = await this.requestClient({
       method: 'post',
       url: 'https://accounts.eu1.gigya.com/accounts.getJWT',
@@ -145,13 +148,17 @@ class ElectroluxAeg extends utils.Adapter {
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
-
         return res.data;
       })
       .catch((error) => {
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
+    if (!jwt) {
+      this.log.error('Login failed #2');
+      this.setState('info.connection', false, true);
+      return;
+    }
     await this.requestClient({
       method: 'post',
       url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token',
@@ -190,7 +197,7 @@ class ElectroluxAeg extends utils.Adapter {
       url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances?includeMetadata=true',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
-        Authorization: 'Bearer ' + this.session.access_token,
+        Authorization: 'Bearer ' + this.session.accessToken,
         Accept: 'application/json',
         'Accept-Charset': 'UTF-8',
         'User-Agent': 'Ktor client',
@@ -199,7 +206,7 @@ class ElectroluxAeg extends utils.Adapter {
     })
       .then(async (res) => {
         this.log.debug(JSON.stringify(res.data));
-
+        this.log.info('Found ' + res.data.length + ' devices');
         for (const device of res.data) {
           const id = device.applianceId;
 
@@ -275,7 +282,7 @@ class ElectroluxAeg extends utils.Adapter {
             accept: '*/*',
             'content-type': 'application/json',
             'user-agent': '',
-            authorization: 'Bearer ' + this.session.access_token,
+            authorization: 'Bearer ' + this.session.accessToken,
             'accept-language': 'de-de',
           },
         })
