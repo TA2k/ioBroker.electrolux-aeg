@@ -1,0 +1,113 @@
+{
+  "common": {
+    "name": "electrolux-aeg",
+    "version": "0.0.1",
+    "news": {
+      "0.0.1": {
+        "en": "initial release",
+        "de": "Erstveröffentlichung",
+        "ru": "Начальная версия",
+        "pt": "lançamento inicial",
+        "nl": "Eerste uitgave",
+        "fr": "Première version",
+        "it": "Versione iniziale",
+        "es": "Versión inicial",
+        "pl": "Pierwsze wydanie",
+        "uk": "Початкова версія",
+        "zh-cn": "首次出版"
+      }
+    },
+    "title": "Electrolux AEG",
+    "titleLang": {
+      "en": "Electrolux AEG",
+      "de": "Electrolux AEG",
+      "ru": "Электролюкс АЕГ",
+      "pt": "Eletrolux AEG",
+      "nl": "Electrolux AEG",
+      "fr": "Electrolux AEG",
+      "it": "Electrolux AEG",
+      "es": "Electrolux AEG",
+      "pl": "Elektrolux AEG",
+      "uk": "Electrolux AEG",
+      "zh-cn": "伊莱克斯AEG"
+    },
+    "desc": {
+      "en": "Adapter for Electrolux and AEG",
+      "de": "Adapter für Electrolux und AEG",
+      "ru": "Адаптер для Electrolux и AEG.",
+      "pt": "Adaptador para Electrolux e AEG",
+      "nl": "Adapter voor Electrolux en AEG",
+      "fr": "Adaptateur pour Electrolux et AEG",
+      "it": "Adattatore per Electrolux e AEG",
+      "es": "Adaptador para Electrolux y AEG",
+      "pl": "Adapter do Electroluxa i AEG",
+      "uk": "Перехідник для Electrolux і AEG",
+      "zh-cn": "适用于伊莱克斯和 AEG 的适配器"
+    },
+    "authors": ["TA2k <tombox2020@gmail.com>"],
+    "keywords": ["electrolux", "aeg"],
+    "license": "MIT",
+    "platform": "Javascript/Node.js",
+    "main": "main.js",
+    "icon": "electrolux-aeg.png",
+    "enabled": true,
+    "extIcon": "https://raw.githubusercontent.com/TA2k/ioBroker.electrolux-aeg/main/admin/electrolux-aeg.png",
+    "readme": "https://github.com/TA2k/ioBroker.electrolux-aeg/blob/main/README.md",
+    "loglevel": "info",
+    "mode": "daemon",
+    "type": "household",
+    "compact": true,
+    "connectionType": "cloud",
+    "dataSource": "poll",
+    "adminUI": {
+      "config": "json"
+    },
+    "plugins": {
+      "sentry": {
+        "dsn": "https://c9bd6c851b1246da95e6e982aa9b88f3@sentry.iobroker.net/152"
+      }
+    },
+    "dependencies": [
+      {
+        "js-controller": ">=3.3.22"
+      }
+    ],
+    "globalDependencies": [
+      {
+        "admin": ">=5.2.28"
+      }
+    ]
+  },
+  "encryptedNative": ["password"],
+  "protectedNative": ["password"],
+  "native": {
+    "username": "",
+    "password": "",
+    "type": "electrolux",
+    "interval": 10
+  },
+  "objects": [],
+  "instanceObjects": [
+    {
+      "_id": "info",
+      "type": "channel",
+      "common": {
+        "name": "Information"
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.connection",
+      "type": "state",
+      "common": {
+        "role": "indicator.connected",
+        "name": "Device or service connected",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    }
+  ]
+}
