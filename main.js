@@ -33,7 +33,11 @@ class ElectroluxAeg extends utils.Adapter {
         clientId: 'ElxOneApp',
         'x-api-key': 'UcGF9pmUMKUqBL6qcQvTu4K4WBmQ5KJqJXprCTdc',
       },
-      aeg: { apikey: '' },
+      aeg: {
+        apikey: '4_A4U-T1cdVL3JjsFffdPnUg',
+        clientId: 'AEGOneApp',
+        'x-api-key': 'UcGF9pmUMKUqBL6qcQvTu4K4WBmQ5KJqJXprCTdc',
+      },
     };
   }
 
@@ -63,9 +67,12 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(async () => {
-        await this.updateDevices();
-      }, this.config.interval * 60 * 1000);
+      this.updateInterval = setInterval(
+        async () => {
+          await this.updateDevices();
+        },
+        this.config.interval * 60 * 1000,
+      );
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expiresIn) {
@@ -124,7 +131,7 @@ class ElectroluxAeg extends utils.Adapter {
       return;
     }
 
-    let data = {
+    const data = {
       apiKey: this.types[this.config.type].apikey,
       fields: 'country',
       format: 'json',
@@ -135,7 +142,12 @@ class ElectroluxAeg extends utils.Adapter {
       targetEnv: 'mobile',
       timestamp: Date.now(),
     };
-    data.sig = this.createSignature(loginResponse.sessionInfo.sessionSecret, 'POST', 'https://accounts.eu1.gigya.com/accounts.getJWT', data);
+    data.sig = this.createSignature(
+      loginResponse.sessionInfo.sessionSecret,
+      'POST',
+      'https://accounts.eu1.gigya.com/accounts.getJWT',
+      data,
+    );
 
     const jwt = await this.requestClient({
       method: 'post',
