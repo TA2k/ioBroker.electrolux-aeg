@@ -67,9 +67,12 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(async () => {
-        await this.updateDevices();
-      }, this.config.interval * 60 * 1000);
+      this.updateInterval = setInterval(
+        async () => {
+          await this.updateDevices();
+        },
+        this.config.interval * 60 * 1000,
+      );
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expiresIn) {
@@ -139,7 +142,12 @@ class ElectroluxAeg extends utils.Adapter {
       targetEnv: 'mobile',
       timestamp: Date.now(),
     };
-    data.sig = this.createSignature(loginResponse.sessionInfo.sessionSecret, 'POST', 'https://accounts.eu1.gigya.com/accounts.getJWT', data);
+    data.sig = this.createSignature(
+      loginResponse.sessionInfo.sessionSecret,
+      'POST',
+      'https://accounts.eu1.gigya.com/accounts.getJWT',
+      data,
+    );
 
     const jwt = await this.requestClient({
       method: 'post',
@@ -820,7 +828,10 @@ class ElectroluxAeg extends utils.Adapter {
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
-            url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' + id + '/capabilities?includeConstants=true',
+            url:
+              'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
+              id +
+              '/capabilities?includeConstants=true',
             headers: {
               'x-api-key': this.types[this.config.type]['x-api-key'],
               Authorization: 'Bearer ' + this.session.accessToken,
@@ -1011,6 +1022,7 @@ class ElectroluxAeg extends utils.Adapter {
       this.refreshTokenInterval && clearInterval(this.refreshTokenInterval);
       callback();
     } catch (e) {
+      this.log.error('Error onUnload: ' + e);
       callback();
     }
   }
