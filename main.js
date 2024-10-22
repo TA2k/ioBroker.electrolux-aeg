@@ -67,12 +67,9 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(
-        async () => {
-          await this.updateDevices();
-        },
-        this.config.interval * 60 * 1000,
-      );
+      this.updateInterval = setInterval(async () => {
+        await this.updateDevices();
+      }, this.config.interval * 60 * 1000);
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expiresIn) {
@@ -142,12 +139,7 @@ class ElectroluxAeg extends utils.Adapter {
       targetEnv: 'mobile',
       timestamp: Date.now(),
     };
-    data.sig = this.createSignature(
-      loginResponse.sessionInfo.sessionSecret,
-      'POST',
-      'https://accounts.eu1.gigya.com/accounts.getJWT',
-      data,
-    );
+    data.sig = this.createSignature(loginResponse.sessionInfo.sessionSecret, 'POST', 'https://accounts.eu1.gigya.com/accounts.getJWT', data);
 
     const jwt = await this.requestClient({
       method: 'post',
@@ -828,10 +820,7 @@ class ElectroluxAeg extends utils.Adapter {
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
-            url:
-              'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
-              id +
-              '/capabilities?includeConstants=true',
+            url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' + id + '/capabilities?includeConstants=true',
             headers: {
               'x-api-key': this.types[this.config.type]['x-api-key'],
               Authorization: 'Bearer ' + this.session.accessToken,
@@ -922,9 +911,91 @@ class ElectroluxAeg extends utils.Adapter {
   }
 
   async refreshToken() {
-    await this.login();
+    await this.requestClient({
+      method: 'post',
+      url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token',
+      headers: {
+        'x-api-key': this.types[this.config.type]['x-api-key'],
+        Authorization: 'Bearer',
+        'User-Agent': 'Electrolux/2.17 android/13',
+        Accept: 'application/json',
+        'Accept-Charset': 'UTF-8',
+        'Content-Type': 'application/json',
+        Connection: 'Keep-Alive',
+      },
+      data: {
+        grantType: 'refresh_token',
+        clientId: 'ElxOneApp',
+        refreshToken: this.session.refreshToken,
+        scope: '',
+      },
+    })
+      .then((res) => {
+        this.log.debug(JSON.stringify(res.data));
+        this.session = res.data;
+        this.log.debug('Refresh Token successful');
+      })
+      .catch((error) => {
+        this.log.error(error);
+        error.response && this.log.error(JSON.stringify(error.response.data));
+      });
   }
 
+  async logout() {
+    this.requestClient({
+      method: 'post',
+      url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token/revoke',
+      headers: {
+        'x-api-key': this.types[this.config.type]['x-api-key'],
+        Authorization: 'Bearer ' + this.session.accessToken,
+        'User-Agent': 'Electrolux/2.17 android/13',
+        Accept: 'application/json',
+        'Accept-Charset': 'UTF-8',
+        'Content-Type': 'application/json',
+        Connection: 'Keep-Alive',
+      },
+      data: {
+        token: this.session.refreshToken,
+        revokeAll: false,
+      },
+    })
+      .then((res) => {
+        this.log.debug(JSON.stringify(res.data));
+        this.log.info('Logout successful');
+      })
+      .catch((error) => {
+        this.log.error(error);
+        error.response && this.log.error(JSON.stringify(error.response.data));
+      });
+    // this.requestClient({
+    //   method: 'post',
+    //   maxBodyLength: Infinity,
+    //   url: 'https://accounts.eu1.gigya.com/accounts.logout',
+    //   headers: {
+    //     connection: 'close',
+    //     'Content-Type': 'application/x-www-form-urlencoded',
+    //     'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 4a Build/TQ3A.230805.001.S1)',
+    //   },
+    //   data: {
+    //     apiKey: this.types[this.config.type].apikey,
+    //     format: 'json',
+    //     gmid: 'gmid.ver4.AtLtJ-SUEg.fD9HlvfkkOrfnv9sUBH7-T7dZoaIRR_17Ma3e801A7aY0C3LUYK91ezKAxvvH22W.YEfO9KhqCSl8tq-1ZAsQKhclyg6R_abKWflJU1N93-W85HcLd4aswFsJvXwmzreHXRm6zyBdRqbEicJ2yqB-EQ.sc3',
+    //     httpStatusCodes: 'false',
+    //     nonce: Date.now() + '_-844501876',
+    //     sdk: 'Android_6.2.1',
+    //     targetEnv: 'mobile',
+    //     ucid: 'dtyfF7X7g-o8E-8MQgQ7Yw',
+    //   },
+    // })
+    //   .then((res) => {
+    //     this.log.debug(JSON.stringify(res.data));
+    //     this.log.info('Logout successful');
+    //   })
+    //   .catch((error) => {
+    //     this.log.error(error);
+    //     error.response && this.log.error(JSON.stringify(error.response.data));
+    //   });
+  }
   /**
    * Is called when adapter shuts down - callback has to be called under any circumstances!
    * @param {() => void} callback
@@ -932,6 +1003,7 @@ class ElectroluxAeg extends utils.Adapter {
   onUnload(callback) {
     try {
       this.setState('info.connection', false, true);
+      this.logout();
       this.refreshTimeout && clearTimeout(this.refreshTimeout);
       this.reLoginTimeout && clearTimeout(this.reLoginTimeout);
       this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
@@ -939,7 +1011,6 @@ class ElectroluxAeg extends utils.Adapter {
       this.refreshTokenInterval && clearInterval(this.refreshTokenInterval);
       callback();
     } catch (e) {
-      this.log.error(e);
       callback();
     }
   }

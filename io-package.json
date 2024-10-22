@@ -59,6 +59,7 @@
     "compact": true,
     "connectionType": "cloud",
     "dataSource": "poll",
+    "stopTimeout": 3000,
     "adminUI": {
       "config": "json"
     },
