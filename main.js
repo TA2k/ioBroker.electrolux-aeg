@@ -979,12 +979,12 @@ class ElectroluxAeg extends utils.Adapter {
     //   data: {
     //     apiKey: this.types[this.config.type].apikey,
     //     format: 'json',
-    //     gmid: 'gmid.ver4.AtLtJ-SUEg.fD9HlvfkkOrfnv9sUBH7-T7dZoaIRR_17Ma3e801A7aY0C3LUYK91ezKAxvvH22W.YEfO9KhqCSl8tq-1ZAsQKhclyg6R_abKWflJU1N93-W85HcLd4aswFsJvXwmzreHXRm6zyBdRqbEicJ2yqB-EQ.sc3',
+    //     gmid: ',
     //     httpStatusCodes: 'false',
     //     nonce: Date.now() + '_-844501876',
     //     sdk: 'Android_6.2.1',
     //     targetEnv: 'mobile',
-    //     ucid: 'dtyfF7X7g-o8E-8MQgQ7Yw',
+    //     ucid: '',
     //   },
     // })
     //   .then((res) => {
