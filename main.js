@@ -10,6 +10,8 @@ const utils = require('@iobroker/adapter-core');
 const axios = require('axios').default;
 const crypto = require('crypto');
 const Json2iob = require('json2iob');
+
+const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
 
 class ElectroluxAeg extends utils.Adapter {
@@ -59,6 +61,7 @@ class ElectroluxAeg extends utils.Adapter {
     this.updateInterval = null;
     this.reLoginTimeout = null;
     this.refreshTokenTimeout = null;
+    this.ws = null;
     this.session = {};
     this.subscribeStates('*');
 
@@ -73,6 +76,7 @@ class ElectroluxAeg extends utils.Adapter {
         },
         this.config.interval * 60 * 1000,
       );
+      this.connectWebSocket();
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expiresIn) {
@@ -920,6 +924,55 @@ class ElectroluxAeg extends utils.Adapter {
       }
     }
   }
+  connectWebSocket() {
+    if (this.ws) {
+      this.ws.close();
+    }
+    const applianceIds = [];
+    for (const id of this.deviceArray) {
+      applianceIds.push({ applianceId: id });
+    }
+    this.ws = new WebSocket('https://ws.eu.ocp.electrolux.one/', {
+      perMessageDeflate: false,
+
+      headers: {
+        'x-api-key': this.types[this.config.type]['x-api-key'],
+        Authorization: 'Bearer ' + this.session.accessToken,
+        Accept: 'application/json',
+        appliances: JSON.stringify(applianceIds),
+        'Accept-Charset': 'UTF-8',
+        'User-Agent': 'Ktor client',
+        Connection: 'Keep-Alive',
+      },
+    });
+    this.ws.on('open', () => {
+      this.log.info('WebSocket connected');
+    });
+    this.ws.on('message', (data, isBinary) => {
+      const dataString = isBinary ? data : data.toString();
+      this.log.debug(dataString);
+      const json = JSON.parse(dataString);
+      if (json.applianceId) {
+        this.json2iob.parse(json.applianceId, json);
+      }
+    });
+    this.ws.on('close', () => {
+      this.log.info('WebSocket closed');
+      this.connectWebSocket();
+    });
+    this.ws.on('error', (error) => {
+      this.log.error(error);
+      this.log.info('Reconnect in 5 seconds');
+      try {
+        this.ws && this.ws.close();
+        this.setTimeout(() => {
+          this.connectWebSocket();
+        }, 5000);
+      } catch (error) {
+        this.log.error(error);
+      }
+    });
+  }
 
   async refreshToken() {
     await this.requestClient({
@@ -1020,6 +1073,7 @@ class ElectroluxAeg extends utils.Adapter {
       this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
       this.updateInterval && clearInterval(this.updateInterval);
       this.refreshTokenInterval && clearInterval(this.refreshTokenInterval);
+
       callback();
     } catch (e) {
       this.log.error('Error onUnload: ' + e);

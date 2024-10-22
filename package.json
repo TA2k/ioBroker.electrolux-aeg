@@ -23,7 +23,8 @@
     "@iobroker/adapter-core": "^3.2.2",
     "axios": "^1.7.7",
     "json2iob": "^2.6.12",
-    "strict-uri-encode": "^2.0.0"
+    "strict-uri-encode": "^2.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@alcalzone/release-script": "^3.8.0",
