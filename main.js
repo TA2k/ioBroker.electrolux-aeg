@@ -76,7 +76,7 @@ class ElectroluxAeg extends utils.Adapter {
         },
         this.config.interval * 60 * 1000,
       );
-      this.connectWebSocket();
+      //  this.connectWebSocket();
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expiresIn) {
