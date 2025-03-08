@@ -814,29 +814,6 @@ class ElectroluxAeg extends utils.Adapter {
             native: {},
           });
 
-          const remoteArray = [
-            { command: 'Refresh', name: 'True = Refresh' },
-            { command: 'ON', name: 'Turn On' },
-            { command: 'OFF', name: 'Turn Off' },
-            { command: 'START', name: 'Start' },
-            { command: 'PAUSE', name: 'Pause' },
-            { command: 'RESUME', name: 'Resume' },
-            { command: 'STOPRESET', name: 'Stop' },
-          ];
-          for (const remote of remoteArray) {
-            this.extendObject(id + '.remote.' + remote.command, {
-              type: 'state',
-              common: {
-                name: remote.name || '',
-                type: remote.type || 'boolean',
-                role: remote.role || 'boolean',
-                def: remote.def == null ? false : remote.def,
-                write: true,
-                read: true,
-              },
-              native: {},
-            });
-          }
           this.json2iob.parse(id, device, { channelName: name });
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
@@ -861,6 +838,52 @@ class ElectroluxAeg extends utils.Adapter {
                 return;
               }
               this.json2iob.parse(id + '.capabilities', res.data);
+              const remoteArray = [
+                { command: 'Refresh', name: 'True = Refresh' },
+                {
+                  command: 'CustomCommand',
+                  name: 'Send Custom Command',
+                  type: 'string',
+                  role: 'json',
+                  def: `{
+    "userSelections": {
+        "programUID": "QUICK_20_MIN_PR_20MIN3KG",
+        "analogTemperature": "30_CELSIUS",
+        "analogSpinSpeed": "1200_RPM",
+        "EWX1493A_anticreaseNoSteam": false,
+        "EWX1493A_anticreaseWSteam": false,
+        "EWX1493A_nightCycle": false,
+        "EWX1493A_pod": false,
+        "EWX1493A_preWashPhase": false,
+        "EWX1493A_rinseHold": false,
+        "EWX1493A_stain": false,
+        "EWX1493A_tcSensor": false,
+        "EWX1493A_wmEconomy": false,
+        "extraRinseNumber": "NONE",
+        "steamValue": "STEAM_OFF",
+        "timeManagerLevel": "NORMAL"
+    }
+}`,
+                },
+              ];
+              const executeCommand = res.data.executeCommand.values;
+              for (const command in executeCommand) {
+                remoteArray.push({ command: command, name: command });
+              }
+              for (const remote of remoteArray) {
+                this.extendObject(id + '.remote.' + remote.command, {
+                  type: 'state',
+                  common: {
+                    name: remote.name || remote.command,
+                    type: remote.type || 'boolean',
+                    role: remote.role || 'boolean',
+                    def: remote.def == null ? false : remote.def,
+                    write: true,
+                    read: true,
+                  },
+                  native: {},
+                });
+              }
             })
             .catch((error) => {
               this.log.info('Capabilities for ' + id + ' not found');
@@ -1121,9 +1144,17 @@ class ElectroluxAeg extends utils.Adapter {
           return;
         }
         this.log.debug(deviceId);
-        const data = {
+        let data = {
           executeCommand: command,
         };
+        if (command === 'CustomCommand') {
+          try {
+            data = JSON.parse(state.val);
+          } catch (error) {
+            this.log.error(error);
+            return;
+          }
+        }
 
         await this.requestClient({
           method: 'put',
