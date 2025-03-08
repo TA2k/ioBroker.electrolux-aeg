@@ -210,7 +210,7 @@ class ElectroluxAeg extends utils.Adapter {
   async getDeviceList() {
     await this.requestClient({
       method: 'get',
-      url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances?includeMetadata=true',
+      url: 'https://api.eu.ocp.electrolux.one/api-federation/api/v1/api-federation?includeApplianceInfo=true&includeProductCard=true&includeMetadata=true',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer ' + this.session.accessToken,
@@ -222,6 +222,7 @@ class ElectroluxAeg extends utils.Adapter {
     })
       .then(async (res) => {
         this.log.debug(JSON.stringify(res.data));
+        res.data = res.data.applianceDataResults;
         /*
         [
   {
@@ -964,6 +965,13 @@ class ElectroluxAeg extends utils.Adapter {
       if (json.applianceId) {
         this.json2iob.parse(json.applianceId, json);
       }
+      if (json.Payload && json.Payload.Appliances && json.Payload.Appliances) {
+        for (const appliance of json.Payload.Appliances) {
+          // for (const metric of appliance.Metrics) {
+          this.json2iob.parse(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
+          // }
+        }
+      }
     });
     this.ws.on('close', () => {
       this.log.info('WebSocket closed');
@@ -1128,11 +1136,17 @@ class ElectroluxAeg extends utils.Adapter {
             Accept: 'application/json',
             'Accept-Charset': 'UTF-8',
             'Content-Type': 'application/json',
-            Host: 'api.eu.ocp.electrolux.one',
             Connection: 'Keep-Alive',
           },
           data: data,
-        });
+        })
+          .then((res) => {
+            this.log.debug(JSON.stringify(res.data));
+          })
+          .catch((error) => {
+            this.log.error(error);
+            error.response && this.log.error(JSON.stringify(error.response.data));
+          });
 
         clearTimeout(this.refreshTimeout);
         this.refreshTimeout = setTimeout(async () => {
