@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "news": {
+      "0.0.2": {
+        "en": "fix remote controls",
+        "de": "remote controls hinzugefügt",
+        "ru": "починить пульты дистанционного управления",
+        "pt": "corrigir controles remotos",
+        "nl": "fix afstandsbedieningen",
+        "fr": "fixer les commandes à distance",
+        "it": "correzione dei comandi remoti",
+        "es": "fijar controles remotos",
+        "pl": "naprawić zdalne sterowanie",
+        "uk": "виправити дистанційні керування",
+        "zh-cn": "修复远程控制"
+      },
       "0.0.1": {
         "en": "initial release",
         "de": "Erstveröffentlichung",
