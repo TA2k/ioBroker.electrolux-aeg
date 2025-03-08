@@ -33,7 +33,7 @@ class ElectroluxAeg extends utils.Adapter {
       electrolux: {
         apikey: '4_JZvZObbVWc1YROHF9e6y8A',
         clientId: 'ElxOneApp',
-        'x-api-key': 'UcGF9pmUMKUqBL6qcQvTu4K4WBmQ5KJqJXprCTdc',
+        'x-api-key': '2AMqwEV5MqVhTKrRCyYfVF8gmKrd2rAmp7cUsfky',
       },
       aeg: {
         apikey: '4_A4U-T1cdVL3JjsFffdPnUg',
@@ -813,7 +813,15 @@ class ElectroluxAeg extends utils.Adapter {
             native: {},
           });
 
-          const remoteArray = [{ command: 'Refresh', name: 'True = Refresh' }];
+          const remoteArray = [
+            { command: 'Refresh', name: 'True = Refresh' },
+            { command: 'ON', name: 'Turn On' },
+            { command: 'OFF', name: 'Turn Off' },
+            { command: 'START', name: 'Start' },
+            { command: 'PAUSE', name: 'Pause' },
+            { command: 'RESUME', name: 'Resume' },
+            { command: 'STOPRESET', name: 'Stop' },
+          ];
           for (const remote of remoteArray) {
             this.extendObject(id + '.remote.' + remote.command, {
               type: 'state',
@@ -1104,6 +1112,27 @@ class ElectroluxAeg extends utils.Adapter {
           return;
         }
         this.log.debug(deviceId);
+        const data = {
+          executeCommand: command,
+        };
+
+        await this.requestClient({
+          method: 'put',
+          maxBodyLength: Infinity,
+          url:
+            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' + deviceId + '/command?brand=electrolux',
+          headers: {
+            Authorization: 'Bearer ' + this.session.accessToken,
+            'x-api-key': this.types[this.config.type]['x-api-key'],
+            'User-Agent': 'Electrolux/3.2 android/9',
+            Accept: 'application/json',
+            'Accept-Charset': 'UTF-8',
+            'Content-Type': 'application/json',
+            Host: 'api.eu.ocp.electrolux.one',
+            Connection: 'Keep-Alive',
+          },
+          data: data,
+        });
 
         clearTimeout(this.refreshTimeout);
         this.refreshTimeout = setTimeout(async () => {
