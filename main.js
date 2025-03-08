@@ -876,7 +876,8 @@ class ElectroluxAeg extends utils.Adapter {
   async updateDevices() {
     const statusArray = [
       {
-        path: '',
+        path: 'states',
+        desc: 'Interval Status',
         url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/$id',
       },
     ];
@@ -907,7 +908,7 @@ class ElectroluxAeg extends utils.Adapter {
             const forceIndex = null;
             const preferedArrayName = null;
 
-            this.json2iob.parse(id + element.path, data, {
+            this.json2iob.parse(id + '.' + element.path, data, {
               forceIndex: forceIndex,
               preferedArrayName: preferedArrayName,
               channelName: element.desc,

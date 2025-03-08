@@ -15,8 +15,21 @@
 
 Adapter for Electrolux and AEG
 
+## Control
+
+electrolux-aeg.0.XXXX.remote
+
+## Status
+
+electrolux-aeg.0.XXXX.states
+
+## Live Events
+
+electrolux-aeg.0.XXXX.events
+
 ## Changelog
-### 0.0.2 (2025-03-08)
+
+### 0.0.3 (2025-03-08)
 
 - fix remote controls
 
