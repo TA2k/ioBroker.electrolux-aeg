@@ -78,9 +78,9 @@ class ElectroluxAeg extends utils.Adapter {
       );
       this.connectWebSocket();
     }
-    let expireTimeout = 30 * 60 * 60 * 1000;
+    let expireTimeout = 30 * 60 * 60 * 1000; // 30 minutes
     if (this.session.expiresIn) {
-      expireTimeout = this.session.expiresIn * 1000;
+      expireTimeout = this.session.expiresIn * 1000 - 234;
     }
     this.refreshTokenInterval = setInterval(() => {
       this.refreshToken();
@@ -814,7 +814,7 @@ class ElectroluxAeg extends utils.Adapter {
             native: {},
           });
 
-          this.json2iob.parse(id, device, { channelName: name });
+          this.json2iob.parse(id + '.status', device, { channelName: 'Interval Status' });
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
@@ -899,7 +899,7 @@ class ElectroluxAeg extends utils.Adapter {
   async updateDevices() {
     const statusArray = [
       {
-        path: 'states',
+        path: 'status',
         desc: 'Interval Status',
         url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/$id',
       },

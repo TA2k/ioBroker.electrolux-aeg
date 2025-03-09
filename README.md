@@ -21,7 +21,7 @@ electrolux-aeg.0.XXXX.remote
 
 ## Status
 
-electrolux-aeg.0.XXXX.states
+electrolux-aeg.0.XXXX.status
 
 ## Live Events
 
