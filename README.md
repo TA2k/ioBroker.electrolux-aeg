@@ -29,7 +29,7 @@ electrolux-aeg.0.XXXX.events
 
 ## Changelog
 
-### 0.0.3 (2025-03-08)
+### 0.0.5 (2025-03-08)
 
 - fix remote controls
 
