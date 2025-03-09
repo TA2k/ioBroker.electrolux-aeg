@@ -876,7 +876,7 @@ class ElectroluxAeg extends utils.Adapter {
                   common: {
                     name: remote.name || remote.command,
                     type: remote.type || 'boolean',
-                    role: remote.role || 'boolean',
+                    role: remote.role || 'button',
                     def: remote.def == null ? false : remote.def,
                     write: true,
                     read: true,
