@@ -892,6 +892,7 @@ class ElectroluxAeg extends utils.Adapter {
         }
       })
       .catch((error) => {
+        this.log.error('Get Device List failed');
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
@@ -950,7 +951,8 @@ class ElectroluxAeg extends utils.Adapter {
                 return;
               }
             }
-            this.log.error(url);
+
+            this.log.error('Failed to fetch: ' + url);
             this.log.error(error);
             error.response && this.log.error(JSON.stringify(error.response.data));
           });
@@ -1041,6 +1043,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.debug('Refresh Token successful');
       })
       .catch((error) => {
+        this.log.error('Refresh Token failed');
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
@@ -1072,6 +1075,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.info('Logout successful');
       })
       .catch((error) => {
+        this.log.error('Logout failed');
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
@@ -1176,6 +1180,7 @@ class ElectroluxAeg extends utils.Adapter {
             this.log.debug(JSON.stringify(res.data));
           })
           .catch((error) => {
+            this.log.error("Couldn't send command");
             this.log.error(error);
             error.response && this.log.error(JSON.stringify(error.response.data));
           });
