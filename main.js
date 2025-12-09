@@ -1032,7 +1032,7 @@ class ElectroluxAeg extends utils.Adapter {
       },
       data: {
         grantType: 'refresh_token',
-        clientId: 'ElxOneApp',
+        clientId: this.types[this.config.type].clientId,
         refreshToken: this.session.refreshToken,
         scope: '',
       },
