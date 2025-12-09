@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "news": {
+      "0.0.6": {
+        "en": "fix refresh token",
+        "de": "erfrischungs-token",
+        "ru": "обновление rescoveryken",
+        "pt": "corrigir o token de atualização",
+        "nl": "fix fresh token",
+        "fr": "correction du jeton rafraîchi",
+        "it": "correzione token rinfrescante",
+        "es": "reparar el refresco",
+        "pl": "naprawić token odświeżania",
+        "uk": "фіксувати оновлений токен",
+        "zh-cn": "修正刷新符号"
+      },
       "0.0.5": {
         "en": "fix remote controls",
         "de": "remote controls hinzugefügt",
@@ -57,8 +70,13 @@
       "uk": "Перехідник для Electrolux і AEG",
       "zh-cn": "适用于伊莱克斯和 AEG 的适配器"
     },
-    "authors": ["TA2k <tombox2020@gmail.com>"],
-    "keywords": ["electrolux", "aeg"],
+    "authors": [
+      "TA2k <tombox2020@gmail.com>"
+    ],
+    "keywords": [
+      "electrolux",
+      "aeg"
+    ],
     "license": "MIT",
     "platform": "Javascript/Node.js",
     "main": "main.js",
@@ -92,8 +110,12 @@
       }
     ]
   },
-  "encryptedNative": ["password"],
-  "protectedNative": ["password"],
+  "encryptedNative": [
+    "password"
+  ],
+  "protectedNative": [
+    "password"
+  ],
   "native": {
     "username": "",
     "password": "",

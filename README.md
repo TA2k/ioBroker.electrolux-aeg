@@ -28,6 +28,9 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.6 (2025-12-09)
+
+- fix refresh token
 
 ### 0.0.5 (2025-03-08)
 
