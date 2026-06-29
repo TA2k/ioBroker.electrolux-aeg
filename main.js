@@ -875,7 +875,7 @@ class ElectroluxAeg extends utils.Adapter {
                   type: 'state',
                   common: {
                     name: remote.name || remote.command,
-                    type: remote.type || 'boolean',
+                    type: /** @type {ioBroker.CommonType} */ (remote.type || 'boolean'),
                     role: remote.role || 'button',
                     def: remote.def == null ? false : remote.def,
                     write: true,
@@ -929,8 +929,8 @@ class ElectroluxAeg extends utils.Adapter {
             }
             const data = res.data;
 
-            const forceIndex = null;
-            const preferedArrayName = null;
+            const forceIndex = undefined;
+            const preferedArrayName = undefined;
 
             this.json2iob.parse(id + '.' + element.path, data, {
               forceIndex: forceIndex,
@@ -1153,7 +1153,7 @@ class ElectroluxAeg extends utils.Adapter {
         };
         if (command === 'CustomCommand') {
           try {
-            data = JSON.parse(state.val);
+            data = JSON.parse(String(state.val));
           } catch (error) {
             this.log.error(error);
             return;

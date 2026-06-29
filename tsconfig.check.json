@@ -1,7 +1,11 @@
 // Specialized tsconfig for type-checking js files
 {
     "extends": "./tsconfig.json",
-    "compilerOptions": {},
+    "compilerOptions": {
+        // TypeScript 6 changed the default for `types` from "auto-include all @types packages" to `[]`.
+        // Re-add the type packages needed when checking our JS and test files.
+        "types": ["node", "mocha"]
+    },
     "include": ["**/*.js", "**/*.d.ts"],
     "exclude": ["**/build", "node_modules/", "widgets/"]
 }
