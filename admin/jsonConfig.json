@@ -1,4 +1,5 @@
 {
+  "type": "panel",
   "i18n": false,
   "items": {
     "username": {
@@ -13,17 +14,26 @@
         "it": "E-mail dell'app",
         "es": "Correo electrónico de la aplicación",
         "pl": "E-mail aplikacji",
+        "uk": "Електронна пошта застосунку",
         "zh-cn": "应用电子邮件"
       },
       "newLine": true,
-      "sm": 3
+      "xs": 12,
+      "sm": 3,
+      "md": 3,
+      "lg": 3,
+      "xl": 3
     },
     "password": {
       "type": "password",
       "newLine": true,
       "repeat": false,
       "visible": true,
+      "xs": 12,
       "sm": 3,
+      "md": 3,
+      "lg": 3,
+      "xl": 3,
       "label": {
         "en": "App Password",
         "de": "App-Passwort",
@@ -34,20 +44,49 @@
         "it": "Password dell'app",
         "es": "Contraseña de la aplicación",
         "pl": "Hasło do aplikacji",
+        "uk": "Пароль застосунку",
         "zh-cn": "应用密码"
       }
     },
     "type": {
       "type": "select",
       "newLine": true,
+      "xs": 12,
       "sm": 3,
+      "md": 3,
+      "lg": 3,
+      "xl": 3,
       "options": [
         {
-          "label": "Electrolux",
+          "label": {
+            "en": "Electrolux",
+            "de": "Electrolux",
+            "ru": "Electrolux",
+            "pt": "Electrolux",
+            "nl": "Electrolux",
+            "fr": "Electrolux",
+            "it": "Electrolux",
+            "es": "Electrolux",
+            "pl": "Electrolux",
+            "uk": "Electrolux",
+            "zh-cn": "Electrolux"
+          },
           "value": "electrolux"
         },
         {
-          "label": "AEG",
+          "label": {
+            "en": "AEG",
+            "de": "AEG",
+            "ru": "AEG",
+            "pt": "AEG",
+            "nl": "AEG",
+            "fr": "AEG",
+            "it": "AEG",
+            "es": "AEG",
+            "pl": "AEG",
+            "uk": "AEG",
+            "zh-cn": "AEG"
+          },
           "value": "aeg"
         }
       ],
@@ -61,6 +100,7 @@
         "it": "Nome dell'app",
         "es": "Nombre de la aplicación",
         "pl": "Nazwa",
+        "uk": "Назва застосунку",
         "zh-cn": "附录"
       }
     },
@@ -68,7 +108,11 @@
       "type": "number",
       "newLine": true,
       "min": 1,
+      "xs": 12,
       "sm": 2,
+      "md": 2,
+      "lg": 2,
+      "xl": 2,
       "label": {
         "en": "Update interval (in minutes)",
         "de": "Aktualisierungsintervall (in Minuten)",
@@ -79,6 +123,7 @@
         "it": "Intervallo di aggiornamento (in minuti)",
         "es": "Intervalo de actualización (en minutos)",
         "pl": "Interwał aktualizacji (w minutach)",
+        "uk": "Інтервал оновлення (у хвилинах)",
         "zh-cn": "更新间隔（分钟）"
       }
     }

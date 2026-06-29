@@ -8,7 +8,7 @@
 // you need to create an adapter
 const utils = require('@iobroker/adapter-core');
 const axios = require('axios').default;
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 const Json2iob = require('json2iob');
 
 const WebSocket = require('ws');
@@ -31,15 +31,15 @@ class ElectroluxAeg extends utils.Adapter {
     this.deviceArray = [];
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create();
-    /** @type {NodeJS.Timeout | null} */
+    /** @type {ioBroker.Interval | null | undefined} */
     this.updateInterval = null;
-    /** @type {NodeJS.Timeout | null} */
+    /** @type {ioBroker.Timeout | null | undefined} */
     this.refreshTokenTimeout = null;
-    /** @type {NodeJS.Timeout | null} */
+    /** @type {ioBroker.Timeout | null | undefined} */
     this.refreshTimeout = null;
-    /** @type {NodeJS.Timeout | null} */
+    /** @type {ioBroker.Timeout | null | undefined} */
     this.reLoginTimeout = null;
-    /** @type {NodeJS.Timeout | null} */
+    /** @type {ioBroker.Timeout | null | undefined} */
     this.reconnectWebSocketTimeout = null;
     this.suppressNextWebSocketReconnect = false;
     this.unloading = false;
@@ -81,7 +81,7 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(
+      this.updateInterval = this.setInterval(
         async () => {
           await this.updateDevices();
         },
@@ -94,7 +94,7 @@ class ElectroluxAeg extends utils.Adapter {
 
   scheduleRefreshToken() {
     if (this.refreshTokenTimeout) {
-      clearTimeout(this.refreshTokenTimeout);
+      this.clearTimeout(this.refreshTokenTimeout);
     }
     // Refresh five minutes before the access token expires; fall back to 30 minutes
     // if the server did not advertise an expires_in.
@@ -103,7 +103,7 @@ class ElectroluxAeg extends utils.Adapter {
     const expireTimeout = Number.isFinite(expiresIn) && expiresIn > 0
       ? Math.max(60 * 1000, expiresIn * 1000 - 5 * 60 * 1000)
       : fallbackTimeout;
-    this.refreshTokenTimeout = setTimeout(async () => {
+    this.refreshTokenTimeout = this.setTimeout(async () => {
       await this.refreshToken();
     }, expireTimeout);
   }
@@ -1075,8 +1075,8 @@ class ElectroluxAeg extends utils.Adapter {
               if (error.response.status === 401) {
                 error.response && this.log.debug(JSON.stringify(error.response.data));
                 this.log.info(element.path + ' receive 401 error. Refresh Token in 60 seconds');
-                this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
-                this.refreshTokenTimeout = setTimeout(() => {
+                this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
+                this.refreshTokenTimeout = this.setTimeout(() => {
                   this.refreshToken();
                 }, 1000 * 60);
 
@@ -1093,7 +1093,7 @@ class ElectroluxAeg extends utils.Adapter {
   }
   connectWebSocket() {
     if (this.reconnectWebSocketTimeout) {
-      clearTimeout(this.reconnectWebSocketTimeout);
+      this.clearTimeout(this.reconnectWebSocketTimeout);
       this.reconnectWebSocketTimeout = null;
     }
     if (this.ws) {
@@ -1169,10 +1169,10 @@ class ElectroluxAeg extends utils.Adapter {
       return;
     }
     if (this.reconnectWebSocketTimeout) {
-      clearTimeout(this.reconnectWebSocketTimeout);
+      this.clearTimeout(this.reconnectWebSocketTimeout);
     }
     this.log.info('Reconnect WebSocket in 5 seconds');
-    this.reconnectWebSocketTimeout = setTimeout(() => {
+    this.reconnectWebSocketTimeout = this.setTimeout(() => {
       this.connectWebSocket();
     }, 5000);
   }
@@ -1281,11 +1281,11 @@ class ElectroluxAeg extends utils.Adapter {
       this.unloading = true;
       this.setStateChanged('info.connection', false, true);
       this.logout();
-      this.refreshTimeout && clearTimeout(this.refreshTimeout);
-      this.reLoginTimeout && clearTimeout(this.reLoginTimeout);
-      this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
-      this.reconnectWebSocketTimeout && clearTimeout(this.reconnectWebSocketTimeout);
-      this.updateInterval && clearInterval(this.updateInterval);
+      this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
+      this.reLoginTimeout && this.clearTimeout(this.reLoginTimeout);
+      this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
+      this.reconnectWebSocketTimeout && this.clearTimeout(this.reconnectWebSocketTimeout);
+      this.updateInterval && this.clearInterval(this.updateInterval);
       if (this.ws) {
         try {
           this.ws.close();
@@ -1361,9 +1361,9 @@ class ElectroluxAeg extends utils.Adapter {
           });
 
         if (this.refreshTimeout) {
-          clearTimeout(this.refreshTimeout);
+          this.clearTimeout(this.refreshTimeout);
         }
-        this.refreshTimeout = setTimeout(async () => {
+        this.refreshTimeout = this.setTimeout(async () => {
           await this.updateDevices();
         }, 20 * 1000);
       }
