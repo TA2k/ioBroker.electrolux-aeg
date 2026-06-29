@@ -17,7 +17,7 @@
     "url": "https://github.com/TA2k/ioBroker.electrolux-aeg.git"
   },
   "engines": {
-    "node": ">= 18"
+    "node": ">= 22"
   },
   "dependencies": {
     "@iobroker/adapter-core": "^3.3.2",
@@ -34,7 +34,7 @@
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.1",
     "@iobroker/testing": "^5.2.2",
-    "@tsconfig/node16": "^16.1.8",
+    "@tsconfig/node22": "^22.0.3",
     "@types/node": "^22.19.2",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^9.1.2",

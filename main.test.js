@@ -1,29 +1,36 @@
 'use strict';
 
-/**
- * This is a dummy TypeScript test file using chai and mocha
- *
- * It's automatically excluded from npm and its build output is excluded from both git and npm.
- * It is advised to test all your modules with accompanying *.test.js-files
- */
-
-// tslint:disable:no-unused-expression
-
 const { expect } = require('chai');
-// import { functionToTest } from "./moduleToTest";
+const { getCommandBrand, parseRemoteStateId } = require('./lib/helpers');
 
-describe('module to test => function to test', () => {
-  // initializing logic
-  const expected = 5;
+describe('ElectroluxAeg helpers', () => {
+  describe('parseRemoteStateId', () => {
+    it('parses normal remote state ids', () => {
+      expect(parseRemoteStateId('electrolux-aeg.0.appliance-1.remote.Refresh')).to.deep.equal({
+        deviceId: 'appliance-1',
+        command: 'Refresh',
+      });
+    });
 
-  it(`should return ${expected}`, () => {
-    const result = 5;
-    // assign result a value from functionToTest
-    expect(result).to.equal(expected);
-    // or using the should() syntax
-    result.should.equal(expected);
+    it('keeps dots inside appliance ids and commands', () => {
+      expect(parseRemoteStateId('electrolux-aeg.0.a.b.remote.Custom.Command')).to.deep.equal({
+        deviceId: 'a.b',
+        command: 'Custom.Command',
+      });
+    });
+
+    it('ignores non remote states', () => {
+      expect(parseRemoteStateId('electrolux-aeg.0.appliance-1.status.applianceState')).to.equal(null);
+    });
   });
-  // ... more tests => it
-});
 
-// ... more test suites => describe
+  describe('getCommandBrand', () => {
+    it('uses aeg for AEG instances', () => {
+      expect(getCommandBrand('aeg')).to.equal('aeg');
+    });
+
+    it('falls back to electrolux', () => {
+      expect(getCommandBrand('electrolux')).to.equal('electrolux');
+    });
+  });
+});

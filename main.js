@@ -13,6 +13,7 @@ const Json2iob = require('json2iob');
 
 const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
+const { getCommandBrand, parseRemoteStateId } = require('./lib/helpers');
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -29,6 +30,14 @@ class ElectroluxAeg extends utils.Adapter {
     this.deviceArray = [];
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create();
+    this.refreshTokenInterval = null;
+    this.refreshTokenTimeout = null;
+    this.refreshTimeout = null;
+    this.updateInterval = null;
+    this.reLoginTimeout = null;
+    this.reconnectWebSocketTimeout = null;
+    this.suppressNextWebSocketReconnect = false;
+    this.unloading = false;
     this.types = {
       electrolux: {
         apikey: '4_JZvZObbVWc1YROHF9e6y8A',
@@ -48,7 +57,7 @@ class ElectroluxAeg extends utils.Adapter {
    */
   async onReady() {
     // Reset the connection indicator during startup
-    this.setState('info.connection', false, true);
+    this.setStateChanged('info.connection', false, true);
     if (this.config.interval < 0.5) {
       this.log.info('Set interval to minimum 0.5');
       this.config.interval = 0.5;
@@ -58,9 +67,6 @@ class ElectroluxAeg extends utils.Adapter {
       return;
     }
 
-    this.updateInterval = null;
-    this.reLoginTimeout = null;
-    this.refreshTokenTimeout = null;
     this.ws = null;
     this.session = {};
     this.subscribeStates('*');
@@ -77,14 +83,27 @@ class ElectroluxAeg extends utils.Adapter {
         this.config.interval * 60 * 1000,
       );
       this.connectWebSocket();
+      this.scheduleRefreshToken();
     }
-    let expireTimeout = 30 * 60 * 60 * 1000; // 30 minutes
-    if (this.session.expiresIn) {
-      expireTimeout = this.session.expiresIn * 1000 - 234;
+  }
+  scheduleRefreshToken() {
+    if (this.refreshTokenInterval) {
+      clearTimeout(this.refreshTokenInterval);
     }
-    this.refreshTokenInterval = setInterval(() => {
-      this.refreshToken();
+    const fallbackTimeout = 30 * 60 * 1000;
+    const expiresIn = Number(this.session.expiresIn);
+    const expireTimeout = Number.isFinite(expiresIn)
+      ? Math.max(60 * 1000, expiresIn * 1000 - 5 * 60 * 1000)
+      : fallbackTimeout;
+    this.refreshTokenInterval = setTimeout(async () => {
+      await this.refreshToken();
     }, expireTimeout);
+  }
+  parseRemoteStateId(id) {
+    return parseRemoteStateId(id);
+  }
+  getCommandBrand() {
+    return getCommandBrand(this.config.type);
   }
   createSignature(secret, method, url, parameters) {
     const parameterNames = Object.keys(parameters)
@@ -130,7 +149,7 @@ class ElectroluxAeg extends utils.Adapter {
       });
     if (!loginResponse) {
       this.log.error('Login failed #1');
-      this.setState('info.connection', false, true);
+      this.setStateChanged('info.connection', false, true);
 
       return;
     }
@@ -172,7 +191,7 @@ class ElectroluxAeg extends utils.Adapter {
       });
     if (!jwt) {
       this.log.error('Login failed #2');
-      this.setState('info.connection', false, true);
+      this.setStateChanged('info.connection', false, true);
       return;
     }
     await this.requestClient({
@@ -199,7 +218,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.debug(JSON.stringify(res.data));
         this.session = res.data;
         this.log.info('Login successful');
-        this.setState('info.connection', true, true);
+        this.setStateChanged('info.connection', true, true);
       })
       .catch((error) => {
         this.log.error(error);
@@ -871,11 +890,12 @@ class ElectroluxAeg extends utils.Adapter {
                 remoteArray.push({ command: command, name: command });
               }
               for (const remote of remoteArray) {
-                this.extendObject(id + '.remote.' + remote.command, {
+                const commonType = remote.type === 'string' ? 'string' : 'boolean';
+                await this.extendObject(id + '.remote.' + remote.command, {
                   type: 'state',
                   common: {
                     name: remote.name || remote.command,
-                    type: remote.type || 'boolean',
+                    type: commonType,
                     role: remote.role || 'button',
                     def: remote.def == null ? false : remote.def,
                     write: true,
@@ -929,8 +949,8 @@ class ElectroluxAeg extends utils.Adapter {
             }
             const data = res.data;
 
-            const forceIndex = null;
-            const preferedArrayName = null;
+            const forceIndex = undefined;
+            const preferedArrayName = undefined;
 
             this.json2iob.parse(id + '.' + element.path, data, {
               forceIndex: forceIndex,
@@ -960,7 +980,12 @@ class ElectroluxAeg extends utils.Adapter {
     }
   }
   connectWebSocket() {
+    if (this.reconnectWebSocketTimeout) {
+      clearTimeout(this.reconnectWebSocketTimeout);
+      this.reconnectWebSocketTimeout = null;
+    }
     if (this.ws) {
+      this.suppressNextWebSocketReconnect = true;
       this.ws.close();
     }
     const applianceIds = [];
@@ -987,7 +1012,14 @@ class ElectroluxAeg extends utils.Adapter {
     this.ws.on('message', (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
       this.log.debug(dataString);
-      const json = JSON.parse(dataString);
+      let json;
+      try {
+        json = JSON.parse(dataString);
+      } catch (error) {
+        this.log.error('Could not parse WebSocket message');
+        this.log.error(error);
+        return;
+      }
       if (json.applianceId) {
         this.json2iob.parse(json.applianceId, json);
       }
@@ -1001,20 +1033,34 @@ class ElectroluxAeg extends utils.Adapter {
     });
     this.ws.on('close', () => {
       this.log.info('WebSocket closed');
-      // this.connectWebSocket();
+      if (this.suppressNextWebSocketReconnect) {
+        this.suppressNextWebSocketReconnect = false;
+        return;
+      }
+      this.scheduleWebSocketReconnect();
     });
     this.ws.on('error', (error) => {
       this.log.error(error);
       this.log.info('Reconnect in 5 seconds');
       try {
         this.ws && this.ws.close();
-        this.setTimeout(() => {
-          // this.connectWebSocket();
-        }, 5000);
+        this.scheduleWebSocketReconnect();
       } catch (error) {
         this.log.error(error);
       }
     });
+  }
+
+  scheduleWebSocketReconnect() {
+    if (this.unloading || !this.session.accessToken) {
+      return;
+    }
+    if (this.reconnectWebSocketTimeout) {
+      clearTimeout(this.reconnectWebSocketTimeout);
+    }
+    this.reconnectWebSocketTimeout = setTimeout(() => {
+      this.connectWebSocket();
+    }, 5000);
   }
 
   async refreshToken() {
@@ -1041,11 +1087,14 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.debug(JSON.stringify(res.data));
         this.session = res.data;
         this.log.debug('Refresh Token successful');
+        this.connectWebSocket();
+        this.scheduleRefreshToken();
       })
       .catch((error) => {
         this.log.error('Refresh Token failed');
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
+        this.setStateChanged('info.connection', false, true);
       });
   }
 
@@ -1114,13 +1163,16 @@ class ElectroluxAeg extends utils.Adapter {
    */
   onUnload(callback) {
     try {
-      this.setState('info.connection', false, true);
+      this.unloading = true;
+      this.setStateChanged('info.connection', false, true);
       this.logout();
       this.refreshTimeout && clearTimeout(this.refreshTimeout);
       this.reLoginTimeout && clearTimeout(this.reLoginTimeout);
       this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
+      this.reconnectWebSocketTimeout && clearTimeout(this.reconnectWebSocketTimeout);
       this.updateInterval && clearInterval(this.updateInterval);
-      this.refreshTokenInterval && clearInterval(this.refreshTokenInterval);
+      this.refreshTokenInterval && clearTimeout(this.refreshTokenInterval);
+      this.ws && this.ws.close();
 
       callback();
     } catch (e) {
@@ -1137,11 +1189,12 @@ class ElectroluxAeg extends utils.Adapter {
   async onStateChange(id, state) {
     if (state) {
       if (!state.ack) {
-        const deviceId = id.split('.')[2];
-        const command = id.split('.')[4];
-        if (id.split('.')[3] !== 'remote') {
+        const remote = this.parseRemoteStateId(id);
+        if (!remote) {
           return;
         }
+        const deviceId = remote.deviceId;
+        const command = remote.command;
 
         if (command === 'Refresh') {
           this.updateDevices();
@@ -1153,7 +1206,7 @@ class ElectroluxAeg extends utils.Adapter {
         };
         if (command === 'CustomCommand') {
           try {
-            data = JSON.parse(state.val);
+            data = JSON.parse(String(state.val));
           } catch (error) {
             this.log.error(error);
             return;
@@ -1164,7 +1217,10 @@ class ElectroluxAeg extends utils.Adapter {
           method: 'put',
           maxBodyLength: Infinity,
           url:
-            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' + deviceId + '/command?brand=electrolux',
+            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
+            deviceId +
+            '/command?brand=' +
+            this.getCommandBrand(),
           headers: {
             Authorization: 'Bearer ' + this.session.accessToken,
             'x-api-key': this.types[this.config.type]['x-api-key'],
@@ -1185,7 +1241,9 @@ class ElectroluxAeg extends utils.Adapter {
             error.response && this.log.error(JSON.stringify(error.response.data));
           });
 
-        clearTimeout(this.refreshTimeout);
+        if (this.refreshTimeout) {
+          clearTimeout(this.refreshTimeout);
+        }
         this.refreshTimeout = setTimeout(async () => {
           await this.updateDevices();
         }, 20 * 1000);
@@ -1200,6 +1258,7 @@ if (require.main !== module) {
    * @param {Partial<utils.AdapterOptions>} [options={}]
    */
   module.exports = (options) => new ElectroluxAeg(options);
+  module.exports.ElectroluxAeg = ElectroluxAeg;
 } else {
   // otherwise start the instance directly
   new ElectroluxAeg();
