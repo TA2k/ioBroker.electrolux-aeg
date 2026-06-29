@@ -13,7 +13,7 @@ const Json2iob = require('json2iob');
 
 const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
-const { getCommandBrand, parseRemoteStateId } = require('./lib/helpers');
+const { getActiveAlertCodes, getActiveAlerts, getCommandBrand, parseRemoteStateId } = require('./lib/helpers');
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -117,6 +117,38 @@ class ElectroluxAeg extends utils.Adapter {
     const payload = Buffer.from(postData, 'utf-8');
     const signature = crypto.createHmac('sha1', key).update(payload).digest('base64');
     return signature;
+  }
+
+  async createAlertSummaryObjects(id) {
+    await this.extendObject(id + '.status.ActiveAlertCodes', {
+      type: 'state',
+      common: {
+        name: 'Active alert codes',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: false,
+        def: '',
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.ActiveAlerts', {
+      type: 'state',
+      common: {
+        name: 'Active alerts',
+        type: 'string',
+        role: 'json',
+        read: true,
+        write: false,
+        def: '[]',
+      },
+      native: {},
+    });
+  }
+
+  async updateAlertSummary(id, data) {
+    await this.setStateChangedAsync(id + '.status.ActiveAlertCodes', getActiveAlertCodes(data), true);
+    await this.setStateChangedAsync(id + '.status.ActiveAlerts', JSON.stringify(getActiveAlerts(data)), true);
   }
 
   async login() {
@@ -834,6 +866,8 @@ class ElectroluxAeg extends utils.Adapter {
           });
 
           this.json2iob.parse(id + '.status', device, { channelName: 'Interval Status' });
+          await this.createAlertSummaryObjects(id);
+          await this.updateAlertSummary(id, device);
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
@@ -942,7 +976,7 @@ class ElectroluxAeg extends utils.Adapter {
             Connection: 'Keep-Alive',
           },
         })
-          .then((res) => {
+          .then(async (res) => {
             this.log.debug(JSON.stringify(res.data));
             if (!res.data) {
               return;
@@ -957,6 +991,7 @@ class ElectroluxAeg extends utils.Adapter {
               preferedArrayName: preferedArrayName,
               channelName: element.desc,
             });
+            await this.updateAlertSummary(id, data);
           })
           .catch((error) => {
             if (error.response) {
