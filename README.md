@@ -28,6 +28,12 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.7 (2026-06-29)
+
+- Hardened login, token refresh and WebSocket reconnect
+- Added active alert summary states under `.status.activeAlert*`
+- Fixed brand parameter for AEG accounts
+
 ### 0.0.6 (2025-12-09)
 
 - fix refresh token
@@ -44,7 +50,7 @@ electrolux-aeg.0.XXXX.events
 
 MIT License
 
-Copyright (c) 2023-2030 TA2k <tombox2020@gmail.com>
+Copyright (c) 2023-2026 TA2k <tombox2020@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
