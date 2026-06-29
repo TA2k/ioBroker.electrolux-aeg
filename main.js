@@ -13,6 +13,8 @@ const Json2iob = require('json2iob');
 
 const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
+const alertLabels = require('./lib/alertLabels.json');
+const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -29,6 +31,20 @@ class ElectroluxAeg extends utils.Adapter {
     this.deviceArray = [];
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create();
+    /** @type {NodeJS.Timeout | null} */
+    this.updateInterval = null;
+    /** @type {NodeJS.Timeout | null} */
+    this.refreshTokenTimeout = null;
+    /** @type {NodeJS.Timeout | null} */
+    this.refreshTimeout = null;
+    /** @type {NodeJS.Timeout | null} */
+    this.reLoginTimeout = null;
+    /** @type {NodeJS.Timeout | null} */
+    this.reconnectWebSocketTimeout = null;
+    this.suppressNextWebSocketReconnect = false;
+    this.unloading = false;
+    this.session = {};
+    this.ws = null;
     this.types = {
       electrolux: {
         apikey: '4_JZvZObbVWc1YROHF9e6y8A',
@@ -48,7 +64,7 @@ class ElectroluxAeg extends utils.Adapter {
    */
   async onReady() {
     // Reset the connection indicator during startup
-    this.setState('info.connection', false, true);
+    this.setStateChanged('info.connection', false, true);
     if (this.config.interval < 0.5) {
       this.log.info('Set interval to minimum 0.5');
       this.config.interval = 0.5;
@@ -58,11 +74,6 @@ class ElectroluxAeg extends utils.Adapter {
       return;
     }
 
-    this.updateInterval = null;
-    this.reLoginTimeout = null;
-    this.refreshTokenTimeout = null;
-    this.ws = null;
-    this.session = {};
     this.subscribeStates('*');
 
     await this.login();
@@ -77,13 +88,23 @@ class ElectroluxAeg extends utils.Adapter {
         this.config.interval * 60 * 1000,
       );
       this.connectWebSocket();
+      this.scheduleRefreshToken();
     }
-    let expireTimeout = 30 * 60 * 60 * 1000; // 30 minutes
-    if (this.session.expiresIn) {
-      expireTimeout = this.session.expiresIn * 1000 - 234;
+  }
+
+  scheduleRefreshToken() {
+    if (this.refreshTokenTimeout) {
+      clearTimeout(this.refreshTokenTimeout);
     }
-    this.refreshTokenInterval = setInterval(() => {
-      this.refreshToken();
+    // Refresh five minutes before the access token expires; fall back to 30 minutes
+    // if the server did not advertise an expires_in.
+    const fallbackTimeout = 30 * 60 * 1000;
+    const expiresIn = Number(this.session.expiresIn);
+    const expireTimeout = Number.isFinite(expiresIn) && expiresIn > 0
+      ? Math.max(60 * 1000, expiresIn * 1000 - 5 * 60 * 1000)
+      : fallbackTimeout;
+    this.refreshTokenTimeout = setTimeout(async () => {
+      await this.refreshToken();
     }, expireTimeout);
   }
   createSignature(secret, method, url, parameters) {
@@ -98,6 +119,115 @@ class ElectroluxAeg extends utils.Adapter {
     const payload = Buffer.from(postData, 'utf-8');
     const signature = crypto.createHmac('sha1', key).update(payload).digest('base64');
     return signature;
+  }
+
+  /**
+   * The OCP token endpoint returns snake_case fields (access_token, refresh_token, expires_in).
+   * Expose camelCase aliases so the rest of the adapter can keep using session.accessToken etc.
+   * @param {any} raw
+   * @returns {any}
+   */
+  normalizeSession(raw) {
+    if (!raw || typeof raw !== 'object') {
+      return raw;
+    }
+    if (raw.access_token && !raw.accessToken) {
+      raw.accessToken = raw.access_token;
+    }
+    if (raw.refresh_token && !raw.refreshToken) {
+      raw.refreshToken = raw.refresh_token;
+    }
+    if (raw.expires_in && !raw.expiresIn) {
+      raw.expiresIn = raw.expires_in;
+    }
+    return raw;
+  }
+
+  /**
+   * Extract sanitized alert entries from the reported state.
+   * @param {any} data
+   * @returns {Array<{code: string, severity: string, acknowledgeStatus: string, label: string}>}
+   */
+  getActiveAlerts(data) {
+    return getActiveAlerts(data, alertLabels);
+  }
+
+  /**
+   * @param {string} id
+   * @param {any} data
+   */
+  async updateActiveAlerts(id, data) {
+    const active = this.getActiveAlerts(data);
+    const codes = active.map((a) => a.code);
+    const labels = active.map((a) => a.label);
+    const highest = pickHighestSeverity(active);
+
+    await this.extendObject(id + '.status.activeAlertCodes', {
+      type: 'state',
+      common: {
+        name: 'Active alert codes (comma separated)',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: false,
+        def: '',
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.activeAlertLabels', {
+      type: 'state',
+      common: {
+        name: 'Active alert labels (human readable, comma separated)',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: false,
+        def: '',
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.activeAlerts', {
+      type: 'state',
+      common: {
+        name: 'Active alerts (JSON)',
+        type: 'string',
+        role: 'json',
+        read: true,
+        write: false,
+        def: '[]',
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.activeAlertCount', {
+      type: 'state',
+      common: {
+        name: 'Number of active alerts',
+        type: 'number',
+        role: 'value',
+        read: true,
+        write: false,
+        def: 0,
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.activeAlertSeverity', {
+      type: 'state',
+      common: {
+        name: 'Highest active alert severity',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: false,
+        def: '',
+      },
+      native: {},
+    });
+
+    await this.setStateChangedAsync(id + '.status.activeAlertCodes', codes.join(','), true);
+    await this.setStateChangedAsync(id + '.status.activeAlertLabels', labels.join(', '), true);
+    await this.setStateChangedAsync(id + '.status.activeAlerts', JSON.stringify(active), true);
+    await this.setStateChangedAsync(id + '.status.activeAlertCount', active.length, true);
+    await this.setStateChangedAsync(id + '.status.activeAlertSeverity', highest, true);
   }
 
   async login() {
@@ -130,7 +260,7 @@ class ElectroluxAeg extends utils.Adapter {
       });
     if (!loginResponse) {
       this.log.error('Login failed #1');
-      this.setState('info.connection', false, true);
+      this.setStateChanged('info.connection', false, true);
 
       return;
     }
@@ -185,21 +315,21 @@ class ElectroluxAeg extends utils.Adapter {
         Accept: 'application/json',
         'Accept-Charset': 'UTF-8',
         'User-Agent': 'Ktor client',
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
         Connection: 'Keep-Alive',
       },
-      data: {
-        grantType: 'urn:ietf:params:oauth:grant-type:token-exchange',
-        clientId: this.types[this.config.type].clientId,
-        idToken: jwt.id_token,
+      data: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+        client_id: this.types[this.config.type].clientId,
+        id_token: jwt.id_token,
         scope: '',
-      },
+      }).toString(),
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
-        this.session = res.data;
+        this.session = this.normalizeSession(res.data);
         this.log.info('Login successful');
-        this.setState('info.connection', true, true);
+        this.setStateChanged('info.connection', true, true);
       })
       .catch((error) => {
         this.log.error(error);
@@ -210,7 +340,7 @@ class ElectroluxAeg extends utils.Adapter {
   async getDeviceList() {
     await this.requestClient({
       method: 'get',
-      url: 'https://api.eu.ocp.electrolux.one/api-federation/api/v1/api-federation?includeApplianceInfo=true&includeProductCard=true&includeMetadata=true',
+      url: 'https://api.eu.ocp.electrolux.one/api-federation/api/v2/api-federation?includeApplianceInfo=true&includeProductCard=true&includeOcpAppliances=true',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer ' + this.session.accessToken,
@@ -815,6 +945,7 @@ class ElectroluxAeg extends utils.Adapter {
           });
 
           this.json2iob.parse(id + '.status', device, { channelName: 'Interval Status' });
+          await this.updateActiveAlerts(id, device);
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
@@ -922,7 +1053,7 @@ class ElectroluxAeg extends utils.Adapter {
             Connection: 'Keep-Alive',
           },
         })
-          .then((res) => {
+          .then(async (res) => {
             this.log.debug(JSON.stringify(res.data));
             if (!res.data) {
               return;
@@ -937,6 +1068,7 @@ class ElectroluxAeg extends utils.Adapter {
               preferedArrayName: preferedArrayName,
               channelName: element.desc,
             });
+            await this.updateActiveAlerts(id, data);
           })
           .catch((error) => {
             if (error.response) {
@@ -960,8 +1092,17 @@ class ElectroluxAeg extends utils.Adapter {
     }
   }
   connectWebSocket() {
+    if (this.reconnectWebSocketTimeout) {
+      clearTimeout(this.reconnectWebSocketTimeout);
+      this.reconnectWebSocketTimeout = null;
+    }
     if (this.ws) {
-      this.ws.close();
+      this.suppressNextWebSocketReconnect = true;
+      try {
+        this.ws.close();
+      } catch (e) {
+        this.log.debug('ws.close() failed: ' + e);
+      }
     }
     const applianceIds = [];
     for (const id of this.deviceArray) {
@@ -987,34 +1128,53 @@ class ElectroluxAeg extends utils.Adapter {
     this.ws.on('message', (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
       this.log.debug(dataString);
-      const json = JSON.parse(dataString);
+      let json;
+      try {
+        json = JSON.parse(dataString);
+      } catch (error) {
+        this.log.error('Could not parse WebSocket message');
+        this.log.error(error);
+        return;
+      }
       if (json.applianceId) {
         this.json2iob.parse(json.applianceId, json);
       }
       if (json.Payload && json.Payload.Appliances && json.Payload.Appliances) {
         for (const appliance of json.Payload.Appliances) {
-          // for (const metric of appliance.Metrics) {
           this.json2iob.parse(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
-          // }
         }
       }
     });
     this.ws.on('close', () => {
       this.log.info('WebSocket closed');
-      // this.connectWebSocket();
+      if (this.suppressNextWebSocketReconnect) {
+        this.suppressNextWebSocketReconnect = false;
+        return;
+      }
+      this.scheduleWebSocketReconnect();
     });
     this.ws.on('error', (error) => {
       this.log.error(error);
-      this.log.info('Reconnect in 5 seconds');
       try {
         this.ws && this.ws.close();
-        this.setTimeout(() => {
-          // this.connectWebSocket();
-        }, 5000);
-      } catch (error) {
-        this.log.error(error);
+      } catch (e) {
+        this.log.debug('ws.close() failed: ' + e);
       }
+      this.scheduleWebSocketReconnect();
     });
+  }
+
+  scheduleWebSocketReconnect() {
+    if (this.unloading || !this.session.accessToken) {
+      return;
+    }
+    if (this.reconnectWebSocketTimeout) {
+      clearTimeout(this.reconnectWebSocketTimeout);
+    }
+    this.log.info('Reconnect WebSocket in 5 seconds');
+    this.reconnectWebSocketTimeout = setTimeout(() => {
+      this.connectWebSocket();
+    }, 5000);
   }
 
   async refreshToken() {
@@ -1024,28 +1184,32 @@ class ElectroluxAeg extends utils.Adapter {
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer',
-        'User-Agent': 'Electrolux/2.17 android/13',
         Accept: 'application/json',
         'Accept-Charset': 'UTF-8',
-        'Content-Type': 'application/json',
+        'User-Agent': 'Ktor client',
+        'Content-Type': 'application/x-www-form-urlencoded',
         Connection: 'Keep-Alive',
       },
-      data: {
-        grantType: 'refresh_token',
-        clientId: this.types[this.config.type].clientId,
-        refreshToken: this.session.refreshToken,
+      data: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: this.types[this.config.type].clientId,
+        refresh_token: this.session.refreshToken,
         scope: '',
-      },
+      }).toString(),
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
-        this.session = res.data;
+        this.session = this.normalizeSession(res.data);
         this.log.debug('Refresh Token successful');
+        // Reconnect the websocket with the new access token and reschedule the next refresh.
+        this.connectWebSocket();
+        this.scheduleRefreshToken();
       })
       .catch((error) => {
         this.log.error('Refresh Token failed');
         this.log.error(error);
         error.response && this.log.error(JSON.stringify(error.response.data));
+        this.setStateChanged('info.connection', false, true);
       });
   }
 
@@ -1114,13 +1278,21 @@ class ElectroluxAeg extends utils.Adapter {
    */
   onUnload(callback) {
     try {
-      this.setState('info.connection', false, true);
+      this.unloading = true;
+      this.setStateChanged('info.connection', false, true);
       this.logout();
       this.refreshTimeout && clearTimeout(this.refreshTimeout);
       this.reLoginTimeout && clearTimeout(this.reLoginTimeout);
       this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
+      this.reconnectWebSocketTimeout && clearTimeout(this.reconnectWebSocketTimeout);
       this.updateInterval && clearInterval(this.updateInterval);
-      this.refreshTokenInterval && clearInterval(this.refreshTokenInterval);
+      if (this.ws) {
+        try {
+          this.ws.close();
+        } catch (e) {
+          this.log.debug('ws.close() failed: ' + e);
+        }
+      }
 
       callback();
     } catch (e) {
@@ -1164,7 +1336,10 @@ class ElectroluxAeg extends utils.Adapter {
           method: 'put',
           maxBodyLength: Infinity,
           url:
-            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' + deviceId + '/command?brand=electrolux',
+            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
+            deviceId +
+            '/command?brand=' +
+            (this.config.type === 'aeg' ? 'aeg' : 'electrolux'),
           headers: {
             Authorization: 'Bearer ' + this.session.accessToken,
             'x-api-key': this.types[this.config.type]['x-api-key'],
@@ -1185,7 +1360,9 @@ class ElectroluxAeg extends utils.Adapter {
             error.response && this.log.error(JSON.stringify(error.response.data));
           });
 
-        clearTimeout(this.refreshTimeout);
+        if (this.refreshTimeout) {
+          clearTimeout(this.refreshTimeout);
+        }
         this.refreshTimeout = setTimeout(async () => {
           await this.updateDevices();
         }, 20 * 1000);
