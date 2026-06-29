@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "news": {
-      "0.0.7": {
+      "0.0.8": {
         "en": "hardened login, token refresh and websocket reconnect; active alerts exposed with code, label, severity and count under .status.activeAlert*; fixed brand parameter for AEG accounts",
         "de": "Login, Token-Refresh und WebSocket-Reconnect stabilisiert; aktive Alerts mit Code, Klartext, Severity und Anzahl unter .status.activeAlert*; Brand-Parameter für AEG-Konten korrigiert",
         "ru": "улучшены вход, обновление токена и повторное подключение WebSocket; активные предупреждения доступны с кодом, текстом, важностью и количеством в .status.activeAlert*; исправлен параметр бренда для учетных записей AEG",
@@ -42,7 +42,7 @@
         "uk": "виправити дистанційні керування",
         "zh-cn": "修复远程控制"
       },
-      "0.0.1": {
+      "0.0.2": {
         "en": "initial release",
         "de": "Erstveröffentlichung",
         "ru": "Начальная версия",

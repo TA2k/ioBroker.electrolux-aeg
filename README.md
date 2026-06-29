@@ -28,7 +28,7 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
-### 0.0.7 (2026-06-29)
+### 0.0.8 (2026-06-29)
 
 - Hardened login, token refresh and WebSocket reconnect
 - Added active alert summary states under `.status.activeAlert*`
@@ -42,7 +42,7 @@ electrolux-aeg.0.XXXX.events
 
 - fix remote controls
 
-### 0.0.1
+### 0.0.2
 
 - (TA2k) initial release
 
