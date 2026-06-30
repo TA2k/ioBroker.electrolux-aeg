@@ -46,6 +46,8 @@ electrolux-aeg.0.XXXX.events
 
 Older changes are documented in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
+[Older changelogs can be found there](CHANGELOG_OLD.md)
+
 ## License
 
 MIT License

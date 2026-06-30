@@ -1,19 +1,28 @@
+# Dependabot configuration
+
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: weekly
+      interval: 'cron'
+      timezone: 'Europe/Berlin'
+      cronjob: '44 2 19 * *'
+    open-pull-requests-limit: 15
+
+  - package-ecosystem: 'npm'
+    directories:
+      - '**/*'
+    schedule:
+      interval: 'cron'
+      timezone: 'Europe/Berlin'
+      cronjob: '44 2 19 * *'
+    open-pull-requests-limit: 20
+    versioning-strategy: 'increase'
     cooldown:
-      default: 7
+      default-days: 7
     ignore:
-      - dependency-name: "@types/node"
+      - dependency-name: '@types/node'
         update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    cooldown:
-      default: 7
+          - 'version-update:semver-major'
