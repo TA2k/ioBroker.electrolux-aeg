@@ -44,9 +44,7 @@ electrolux-aeg.0.XXXX.events
 
 - fix remote controls
 
-### 0.0.2
-
-- (TA2k) initial release
+Older changes are documented in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
