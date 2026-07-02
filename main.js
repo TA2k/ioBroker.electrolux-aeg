@@ -14,6 +14,7 @@ const Json2iob = require('json2iob');
 const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
 const alertLabels = require('./lib/alertLabels.json');
+const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
 
 class ElectroluxAeg extends utils.Adapter {
@@ -1082,6 +1083,13 @@ class ElectroluxAeg extends utils.Adapter {
 
                 return;
               }
+            }
+
+            if (isTransientFetchError(error)) {
+              const status = error.response?.status || error.code || error.message;
+              this.log.warn('Temporary API fetch failed for ' + url + ': ' + status);
+              error.response && this.log.debug(JSON.stringify(error.response.data));
+              return;
             }
 
             this.log.error('Failed to fetch: ' + url);

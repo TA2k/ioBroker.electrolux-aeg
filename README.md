@@ -30,6 +30,10 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### **WORK IN PROGRESS**
+
+- Handle temporary Electrolux API gateway timeouts without error log spam
+
 ### 0.0.8 (2026-06-29)
 
 - Hardened login, token refresh and WebSocket reconnect
