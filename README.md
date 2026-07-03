@@ -32,6 +32,11 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.11 (2026-07-03)
+
+- Republish the latest repository review fixes with npm provenance.
+- Remove obsolete ESLint and Prettier dependencies after migrating to `@iobroker/eslint-config`.
+
 ### 0.0.10 (2026-07-03)
 
 - Republish the 0.0.9 migration fixes with npm provenance.

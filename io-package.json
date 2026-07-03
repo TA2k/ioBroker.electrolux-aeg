@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "news": {
+      "0.0.11": {
+        "en": "republished the latest repository review fixes with npm provenance and cleaned up obsolete ESLint and Prettier dependencies",
+        "de": "Latest-Repository-Review-Fixes mit npm-Provenance neu veröffentlicht und veraltete ESLint- und Prettier-Abhängigkeiten bereinigt",
+        "ru": "повторно опубликованы исправления для проверки latest-репозитория с npm provenance и очищены устаревшие зависимости ESLint и Prettier",
+        "pt": "correções da revisão do repositório latest republicadas com proveniência npm e dependências obsoletas do ESLint e Prettier removidas",
+        "nl": "latest-repository-reviewfixes opnieuw gepubliceerd met npm-provenance en verouderde ESLint- en Prettier-afhankelijkheden opgeschoond",
+        "fr": "correctifs de revue du dépôt latest republiés avec la provenance npm et dépendances ESLint/Prettier obsolètes nettoyées",
+        "it": "correzioni della revisione del repository latest ripubblicate con provenienza npm e dipendenze ESLint/Prettier obsolete ripulite",
+        "es": "correcciones de revisión del repositorio latest republicadas con procedencia npm y dependencias obsoletas de ESLint y Prettier limpiadas",
+        "pl": "poprawki przeglądu repozytorium latest opublikowane ponownie z npm provenance oraz usunięto przestarzałe zależności ESLint i Prettier",
+        "uk": "виправлення перевірки latest-репозиторію повторно опубліковано з npm provenance та очищено застарілі залежності ESLint і Prettier",
+        "zh-cn": "使用 npm provenance 重新发布 latest 仓库审核修复，并清理过时的 ESLint 和 Prettier 依赖"
+      },
       "0.0.10": {
         "en": "republished the 0.0.9 migration fixes with npm provenance; sanitized appliance object ids, removed old unsanitized object trees after migration and added safer cloud polling",
         "de": "0.0.9-Migrationskorrekturen mit npm-Provenance neu veröffentlicht; Geräte-Objekt-IDs bereinigt, alte nicht bereinigte Objektbäume nach der Migration entfernt und sichereres Cloud-Polling ergänzt",
