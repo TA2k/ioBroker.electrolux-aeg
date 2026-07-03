@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "news": {
+      "0.0.9": {
+        "en": "sanitized appliance object ids; old unsanitized object trees are removed after migration; added request timeouts, non-overlapping polling and redacted token logs",
+        "de": "Geräte-Objekt-IDs bereinigt; alte nicht bereinigte Objektbäume werden nach der Migration entfernt; Request-Timeouts, überlappungsfreies Polling und geschwärzte Token-Logs hinzugefügt",
+        "ru": "идентификаторы объектов устройств очищены; старые неочищенные деревья объектов удаляются после миграции; добавлены тайм-ауты запросов, опрос без наложений и скрытие токенов в журналах",
+        "pt": "IDs de objeto dos aparelhos sanitizados; árvores de objetos antigas não sanitizadas são removidas após a migração; adicionados timeouts de requisição, polling sem sobreposição e logs de token redigidos",
+        "nl": "apparaat-object-ID's opgeschoond; oude niet-opgeschoonde objectbomen worden na migratie verwijderd; request-time-outs, niet-overlappende polling en afgeschermde tokenlogs toegevoegd",
+        "fr": "identifiants d'objets d'appareils assainis; les anciens arbres d'objets non assainis sont supprimés après migration; ajout de délais de requête, d'un polling sans chevauchement et de journaux de jetons masqués",
+        "it": "ID oggetto degli apparecchi sanificati; i vecchi alberi oggetto non sanificati vengono rimossi dopo la migrazione; aggiunti timeout richieste, polling senza sovrapposizioni e log token redatti",
+        "es": "IDs de objeto de electrodomésticos saneados; los árboles de objetos antiguos sin sanear se eliminan tras la migración; añadidos timeouts de petición, sondeo sin solapamiento y logs de tokens redactados",
+        "pl": "oczyszczono identyfikatory obiektów urządzeń; stare nieoczyszczone drzewa obiektów są usuwane po migracji; dodano limity czasu żądań, niepokrywające się odpytywanie i ukrywanie tokenów w logach",
+        "uk": "ідентифікатори об'єктів пристроїв очищено; старі неочищені дерева об'єктів видаляються після міграції; додано тайм-аути запитів, опитування без накладання та приховання токенів у журналах",
+        "zh-cn": "清理了设备对象 ID；迁移后会删除旧的未清理对象树；添加请求超时、无重叠轮询和令牌日志脱敏"
+      },
       "0.0.8": {
         "en": "hardened login, token refresh and websocket reconnect; active alerts exposed with code, label, severity and count under .status.activeAlert*; fixed brand parameter for AEG accounts",
         "de": "Login, Token-Refresh und WebSocket-Reconnect stabilisiert; aktive Alerts mit Code, Klartext, Severity und Anzahl unter .status.activeAlert*; Brand-Parameter für AEG-Konten korrigiert",

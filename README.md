@@ -32,7 +32,7 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 0.0.9 (2026-07-03)
 
 - Breaking: sanitize appliance object IDs. Characters like `:` are replaced with `_`; update scripts, aliases, VIS and history settings that reference old IDs.
 - Remove old unsanitized appliance object trees after creating the new sanitized objects.
