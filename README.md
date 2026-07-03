@@ -15,6 +15,8 @@
 
 Adapter for Electrolux and AEG
 
+Supported appliances are managed through the official [Electrolux](https://www.electrolux.com/) and [AEG](https://www.aeg.com/) connected appliance services.
+
 **This adapter uses Sentry libraries to automatically report exceptions and code errors to the developers.** For more details and for information how to disable the error reporting see [Sentry-Plugin Documentation](https://github.com/ioBroker/plugin-sentry#plugin-sentry)! Sentry reporting is used starting with js-controller 3.0.
 
 ## Control
@@ -32,6 +34,8 @@ electrolux-aeg.0.XXXX.events
 ## Changelog
 ### **WORK IN PROGRESS**
 
+- Breaking: sanitize appliance object IDs. Characters like `:` are replaced with `_`; update scripts, aliases, VIS and history settings that reference old IDs.
+- Remove old unsanitized appliance object trees after creating the new sanitized objects.
 - Handle temporary Electrolux API gateway timeouts without error log spam
 
 ### 0.0.8 (2026-06-29)

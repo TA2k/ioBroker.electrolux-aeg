@@ -16,6 +16,10 @@ const strictUriEncode = require('strict-uri-encode');
 const alertLabels = require('./lib/alertLabels.json');
 const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
+const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedData } = require('./lib/objectIds');
+
+const REQUEST_TIMEOUT_MS = 30 * 1000;
+const MAX_UPDATE_INTERVAL_MINUTES = 24 * 60;
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -30,9 +34,11 @@ class ElectroluxAeg extends utils.Adapter {
     this.on('stateChange', this.onStateChange.bind(this));
     this.on('unload', this.onUnload.bind(this));
     this.deviceArray = [];
+    this.deviceIdMap = {};
+    this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
-    this.requestClient = axios.create();
-    /** @type {ioBroker.Interval | null | undefined} */
+    this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
+    /** @type {ioBroker.Timeout | null | undefined} */
     this.updateInterval = null;
     /** @type {ioBroker.Timeout | null | undefined} */
     this.refreshTokenTimeout = null;
@@ -70,6 +76,10 @@ class ElectroluxAeg extends utils.Adapter {
       this.log.info('Set interval to minimum 0.5');
       this.config.interval = 0.5;
     }
+    if (this.config.interval > MAX_UPDATE_INTERVAL_MINUTES) {
+      this.log.info('Set interval to maximum ' + MAX_UPDATE_INTERVAL_MINUTES);
+      this.config.interval = MAX_UPDATE_INTERVAL_MINUTES;
+    }
     if (!this.config.username || !this.config.password) {
       this.log.error('Please set username and password in the instance settings');
       return;
@@ -82,15 +92,26 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.session.accessToken) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = this.setInterval(
-        async () => {
-          await this.updateDevices();
-        },
-        this.config.interval * 60 * 1000,
-      );
+      this.scheduleUpdateDevices();
       this.connectWebSocket();
       this.scheduleRefreshToken();
     }
+  }
+
+  scheduleUpdateDevices() {
+    if (this.unloading) {
+      return;
+    }
+    if (this.updateInterval) {
+      this.clearTimeout(this.updateInterval);
+    }
+    this.updateInterval = this.setTimeout(async () => {
+      try {
+        await this.updateDevices();
+      } finally {
+        this.scheduleUpdateDevices();
+      }
+    }, this.config.interval * 60 * 1000);
   }
 
   scheduleRefreshToken() {
@@ -108,6 +129,35 @@ class ElectroluxAeg extends utils.Adapter {
       await this.refreshToken();
     }, expireTimeout);
   }
+
+  sanitizeObjectId(id) {
+    return sanitizeObjectId(id);
+  }
+
+  sanitizeJsonKeys(value) {
+    return sanitizeJsonKeys(value);
+  }
+
+  parseJson(path, data, options) {
+    return this.json2iob.parse(this.sanitizeObjectId(path), this.sanitizeJsonKeys(data), options);
+  }
+
+  logDebugData(data) {
+    this.log.debug(stringifyRedactedData(data));
+  }
+
+  async removeOldDeviceObject(rawId, safeId) {
+    if (rawId === safeId) {
+      return;
+    }
+    const oldObject = await this.getObjectAsync(rawId);
+    if (!oldObject) {
+      return;
+    }
+    await this.delObjectAsync(rawId, { recursive: true });
+    this.log.warn('Migrated object id "' + rawId + '" to "' + safeId + '". Please update scripts, aliases and history settings.');
+  }
+
   createSignature(secret, method, url, parameters) {
     const parameterNames = Object.keys(parameters)
       .sort()
@@ -252,12 +302,12 @@ class ElectroluxAeg extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         return res.data;
       })
       .catch((error) => {
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
     if (!loginResponse) {
       this.log.error('Login failed #1');
@@ -294,12 +344,12 @@ class ElectroluxAeg extends utils.Adapter {
       data: data,
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         return res.data;
       })
       .catch((error) => {
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
     if (!jwt) {
       this.log.error('Login failed #2');
@@ -327,14 +377,14 @@ class ElectroluxAeg extends utils.Adapter {
       }).toString(),
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         this.session = this.normalizeSession(res.data);
         this.log.info('Login successful');
         this.setStateChanged('info.connection', true, true);
       })
       .catch((error) => {
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
   }
 
@@ -352,581 +402,17 @@ class ElectroluxAeg extends utils.Adapter {
       },
     })
       .then(async (res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         res.data = res.data.applianceDataResults;
-        /*
-        [
-  {
-    applianceId: "x:x-x",
-    applianceData: {
-      applianceName: "x",
-      created: "2024-07-21T10:56:47.334Z",
-      modelName: "OV",
-    },
-    properties: {
-      desired: {
-      },
-      reported: {
-        doorState: "CLOSED",
-        timeToEnd: -1,
-        remoteControl: "NOT_SAFETY_RELEVANT_ENABLED",
-        targetTemperatureF: 302,
-        targetTemperatureC: 150,
-        program: "TRUE_FAN",
-        targetMicrowavePower: 65535,
-        displayFoodProbeTemperatureC: -17.833333333333332,
-        waterTrayInsertionState: "INSERTED",
-        waterTankEmpty: "STEAM_TANK_FULL",
-        targetDuration: 0,
-        startTime: -1,
-        applianceInfo: {
-          applianceType: "OV",
-        },
-        displayFoodProbeTemperatureF: -0.1,
-        targetFoodProbeTemperatureC: -17.833333333333332,
-        targetFoodProbeTemperatureF: -0.1,
-        runningTime: 0,
-        applianceState: "READY_TO_START",
-        alerts: [
-        ],
-        displayTemperatureC: 30,
-        networkInterface: {
-          swVersion: "v3.0.0S_argo",
-          otaState: "IDLE",
-          linkQualityIndicator: "EXCELLENT",
-          niuSwUpdateCurrentDescription: "x-x",
-          swAncAndRevision: "x",
-        },
-        foodProbeInsertionState: "NOT_INSERTED",
-        displayTemperatureF: 86,
-        cavityLight: false,
-        processPhase: "NONE",
-        connectivityState: "connected",
-      },
-      metadata: {
-        connectivityState: {
-          timestamp: 1729294062,
-        },
-        applianceInfo: {
-          applianceType: {
-            timestamp: 1729508665,
-          },
-        },
-        doorState: {
-          timestamp: 1729508659,
-        },
-        targetFoodProbeTemperatureC: {
-          timestamp: 1729508663,
-        },
-        targetTemperatureF: {
-          timestamp: 1729508659,
-        },
-        targetFoodProbeTemperatureF: {
-          timestamp: 1729508663,
-        },
-        targetTemperatureC: {
-          timestamp: 1729508659,
-        },
-        runningTime: {
-          timestamp: 1729508653,
-        },
-        applianceState: {
-          timestamp: 1729508653,
-        },
-        networkInterface: {
-          swVersion: {
-            timestamp: 1729294066,
-          },
-          otaState: {
-            timestamp: 1729428649,
-          },
-          linkQualityIndicator: {
-            timestamp: 1729294066,
-          },
-          niuSwUpdateCurrentDescription: {
-            timestamp: 1729294066,
-          },
-          swAncAndRevision: {
-            timestamp: 1729294066,
-          },
-        },
-        foodProbeInsertionState: {
-          timestamp: 1729508664,
-        },
-        cavityLight: {
-          timestamp: 1729508660,
-        },
-        waterTrayInsertionState: {
-          timestamp: 1729508662,
-        },
-        waterTankEmpty: {
-          timestamp: 1729508661,
-        },
-        targetDuration: {
-          timestamp: 1729508656,
-        },
-        startTime: {
-          timestamp: 1729508655,
-        },
-        alerts: [
-        ],
-        remoteControl: {
-          timestamp: 1729440371,
-        },
-        processPhase: {
-          timestamp: 1729440788,
-        },
-        program: {
-          timestamp: 1729436948,
-        },
-        targetMicrowavePower: {
-          timestamp: 1729508665,
-        },
-        timeToEnd: {
-          timeToEnd: {
-            timestamp: 1729508654462,
-          },
-        },
-        displayTemperatureC: {
-          displayTemperatureC: {
-            timestamp: 1729447800154,
-          },
-        },
-        displayFoodProbeTemperatureC: {
-          displayFoodProbeTemperatureC: {
-            timestamp: 1729508663136,
-          },
-        },
-        displayTemperatureF: {
-          displayTemperatureF: {
-            timestamp: 1729447800154,
-          },
-        },
-        displayFoodProbeTemperatureF: {
-          displayFoodProbeTemperatureF: {
-            timestamp: 1729508663136,
-          },
-        },
-      },
-    },
-    status: "enabled",
-    connectionState: "connected",
-  },
-  {
-    applianceId: "x:x-x",
-    applianceData: {
-      applianceName: "x x",
-      created: "2024-07-17T18:38:22.529Z",
-      modelName: "DW",
-    },
-    properties: {
-      desired: {
-      },
-      reported: {
-        waterHardness: "STEP_5",
-        applianceInfo: {
-          applianceType: "DW",
-        },
-        doorState: "OPEN",
-        timeToEnd: 0,
-        rinseAidLevel: 6,
-        remoteControl: "NOT_SAFETY_RELEVANT_ENABLED",
-        displayOnFloor: "GREEN",
-        applianceState: "OFF",
-        applianceMode: "NORMAL",
-        totalCycleCounter: 84,
-        alerts: [
-          {
-            severity: "WARNING",
-            acknowledgeStatus: "NOT_NEEDED",
-            code: "DISH_ALARM_SALT_MISSING",
-          },
-          {
-            severity: "WARNING",
-            acknowledgeStatus: "NOT_NEEDED",
-            code: "DISH_ALARM_RINSE_AID_LOW",
-          },
-        ],
-        cyclePhase: "UNAVAILABLE",
-        keyTone: true,
-        preSelectLast: false,
-        applianceCareAndMaintenance0: {
-        },
-        networkInterface: {
-          swVersion: "v3.0.0S_argo",
-          otaState: "IDLE",
-          linkQualityIndicator: "EXCELLENT",
-          niuSwUpdateCurrentDescription: "x-x",
-          swAncAndRevision: "x",
-        },
-        endOfCycleSound: "NO_SOUND",
-        startTime: -1,
-        miscellaneousState: {
-          ecoMode: false,
-        },
-        userSelections: {
-          extraPowerOption: false,
-          energyScore: 1,
-          sprayZoneOption: false,
-          waterScore: 1,
-          extraSilentOption: false,
-          autoDoorOpener: true,
-          sanitizeOption: false,
-          ecoScore: 5,
-          glassCareOption: false,
-          programUID: "AUTO",
-        },
-        connectivityState: "disconnected",
-      },
-      metadata: {
-        connectivityState: {
-          timestamp: 1729497408,
-        },
-        waterHardness: {
-          timestamp: 1729488348,
-        },
-        applianceInfo: {
-          applianceType: {
-            timestamp: 1729497318,
-          },
-        },
-        doorState: {
-          timestamp: 1729494677,
-        },
-        rinseAidLevel: {
-          timestamp: 1729488349,
-        },
-        applianceState: {
-          timestamp: 1729497318,
-        },
-        applianceMode: {
-          timestamp: 1729488340,
-        },
-        keyTone: {
-          timestamp: 1729488340,
-        },
-        preSelectLast: {
-          timestamp: 1729488342,
-        },
-        applianceCareAndMaintenance0: {
-        },
-        networkInterface: {
-          swVersion: {
-            timestamp: 1729488340,
-          },
-          otaState: {
-            timestamp: 1729488360,
-          },
-          linkQualityIndicator: {
-            timestamp: 1729488340,
-          },
-          niuSwUpdateCurrentDescription: {
-            timestamp: 1729488351,
-          },
-          swAncAndRevision: {
-            timestamp: 1729488340,
-          },
-        },
-        startTime: {
-          timestamp: 1729488346,
-        },
-        miscellaneousState: {
-          ecoMode: {
-            timestamp: 1729488345,
-          },
-        },
-        userSelections: {
-          extraPowerOption: {
-            timestamp: 1729488345,
-          },
-          energyScore: {
-            timestamp: 1729488345,
-          },
-          sprayZoneOption: {
-            timestamp: 1729488345,
-          },
-          waterScore: {
-            timestamp: 1729488345,
-          },
-          extraSilentOption: {
-            timestamp: 1729488345,
-          },
-          autoDoorOpener: {
-            timestamp: 1729488345,
-          },
-          sanitizeOption: {
-            timestamp: 1729488345,
-          },
-          ecoScore: {
-            timestamp: 1729488345,
-          },
-          glassCareOption: {
-            timestamp: 1729488345,
-          },
-          programUID: {
-            timestamp: 1729488345,
-          },
-        },
-        alerts: [
-          {
-            severity: {
-              timestamp: 1729421135,
-            },
-            acknowledgeStatus: {
-              timestamp: 1729421135,
-            },
-            code: {
-              timestamp: 1729421135,
-            },
-          },
-          {
-            severity: {
-              timestamp: 1729421135,
-            },
-            acknowledgeStatus: {
-              timestamp: 1729421135,
-            },
-            code: {
-              timestamp: 1729421135,
-            },
-          },
-        ],
-        cyclePhase: {
-          timestamp: 1729497316,
-        },
-        remoteControl: {
-          timestamp: 1729494687,
-        },
-        endOfCycleSound: {
-          timestamp: 1729421135,
-        },
-        displayOnFloor: {
-          timestamp: 1729421135,
-        },
-        totalCycleCounter: {
-          timestamp: 1729421135,
-        },
-        timeToEnd: {
-          timeToEnd: {
-            timestamp: 1729497315596,
-          },
-        },
-      },
-    },
-    status: "enabled",
-    connectionState: "disconnected",
-  },
-  {
-    applianceId: "x:x-x",
-    applianceData: {
-      applianceName: "x x",
-      created: "2024-07-17T18:36:28.171Z",
-      modelName: "DW",
-    },
-    properties: {
-      desired: {
-      },
-      reported: {
-        waterHardness: "STEP_5",
-        applianceInfo: {
-          applianceType: "DW",
-        },
-        doorState: "OPEN",
-        timeToEnd: 0,
-        rinseAidLevel: 6,
-        remoteControl: "NOT_SAFETY_RELEVANT_ENABLED",
-        displayOnFloor: "GREEN",
-        applianceState: "OFF",
-        applianceMode: "NORMAL",
-        totalCycleCounter: 88,
-        alerts: [
-          {
-            severity: "WARNING",
-            acknowledgeStatus: "NOT_NEEDED",
-            code: "DISH_ALARM_SALT_MISSING",
-          },
-          {
-            severity: "WARNING",
-            acknowledgeStatus: "NOT_NEEDED",
-            code: "DISH_ALARM_RINSE_AID_LOW",
-          },
-        ],
-        cyclePhase: "UNAVAILABLE",
-        keyTone: true,
-        preSelectLast: false,
-        applianceCareAndMaintenance0: {
-        },
-        networkInterface: {
-          swVersion: "v3.0.0S_argo",
-          otaState: "IDLE",
-          linkQualityIndicator: "EXCELLENT",
-          niuSwUpdateCurrentDescription: "xx-xx",
-          swAncAndRevision: "xx",
-        },
-        endOfCycleSound: "NO_SOUND",
-        startTime: -1,
-        miscellaneousState: {
-          ecoMode: false,
-        },
-        userSelections: {
-          extraPowerOption: true,
-          energyScore: 1,
-          sprayZoneOption: false,
-          waterScore: 1,
-          extraSilentOption: false,
-          autoDoorOpener: true,
-          sanitizeOption: true,
-          ecoScore: 1,
-          glassCareOption: false,
-          programUID: "NORMAL90",
-        },
-        connectivityState: "disconnected",
-      },
-      metadata: {
-        connectivityState: {
-          timestamp: 1729450096,
-        },
-        waterHardness: {
-          timestamp: 1729440471,
-        },
-        applianceInfo: {
-          applianceType: {
-            timestamp: 1729450006,
-          },
-        },
-        doorState: {
-          timestamp: 1729449463,
-        },
-        rinseAidLevel: {
-          timestamp: 1729440471,
-        },
-        applianceState: {
-          timestamp: 1729450006,
-        },
-        applianceMode: {
-          timestamp: 1729440471,
-        },
-        keyTone: {
-          timestamp: 1729440463,
-        },
-        preSelectLast: {
-          timestamp: 1729440465,
-        },
-        applianceCareAndMaintenance0: {
-        },
-        networkInterface: {
-          swVersion: {
-            timestamp: 1729440463,
-          },
-          otaState: {
-            timestamp: 1729440484,
-          },
-          linkQualityIndicator: {
-            timestamp: 1729440463,
-          },
-          niuSwUpdateCurrentDescription: {
-            timestamp: 1729440475,
-          },
-          swAncAndRevision: {
-            timestamp: 1729440463,
-          },
-        },
-        startTime: {
-          timestamp: 1729440469,
-        },
-        miscellaneousState: {
-          ecoMode: {
-            timestamp: 1729440467,
-          },
-        },
-        userSelections: {
-          extraPowerOption: {
-            timestamp: 1729440468,
-          },
-          energyScore: {
-            timestamp: 1729440468,
-          },
-          sprayZoneOption: {
-            timestamp: 1729440468,
-          },
-          waterScore: {
-            timestamp: 1729440468,
-          },
-          extraSilentOption: {
-            timestamp: 1729440468,
-          },
-          autoDoorOpener: {
-            timestamp: 1729440468,
-          },
-          sanitizeOption: {
-            timestamp: 1729440468,
-          },
-          ecoScore: {
-            timestamp: 1729440468,
-          },
-          glassCareOption: {
-            timestamp: 1729440468,
-          },
-          programUID: {
-            timestamp: 1729440468,
-          },
-        },
-        alerts: [
-          {
-            severity: {
-              timestamp: 1729316810,
-            },
-            acknowledgeStatus: {
-              timestamp: 1729316810,
-            },
-            code: {
-              timestamp: 1729316810,
-            },
-          },
-          {
-            severity: {
-              timestamp: 1729316810,
-            },
-            acknowledgeStatus: {
-              timestamp: 1729316810,
-            },
-            code: {
-              timestamp: 1729316810,
-            },
-          },
-        ],
-        cyclePhase: {
-          timestamp: 1729450005,
-        },
-        remoteControl: {
-          timestamp: 1729449473,
-        },
-        endOfCycleSound: {
-          timestamp: 1729316810,
-        },
-        displayOnFloor: {
-          timestamp: 1729316810,
-        },
-        totalCycleCounter: {
-          timestamp: 1729316810,
-        },
-        timeToEnd: {
-          timeToEnd: {
-            timestamp: 1729450004604,
-          },
-        },
-      },
-    },
-    status: "enabled",
-    connectionState: "disconnected",
-  },
-]*/
+
         this.log.info('Found ' + res.data.length + ' devices');
         for (const device of res.data) {
-          const id = device.applianceId;
+          const rawId = device.applianceId;
+          const id = this.sanitizeObjectId(rawId);
 
-          this.deviceArray.push(id);
-          let name = id;
+          this.deviceArray.push(rawId);
+          this.deviceIdMap[id] = rawId;
+          let name = rawId;
           if (device.applianceData && device.applianceData.applianceName) {
             name = device.applianceData.applianceName;
           }
@@ -944,15 +430,16 @@ class ElectroluxAeg extends utils.Adapter {
             },
             native: {},
           });
+          await this.removeOldDeviceObject(rawId, id);
 
-          this.json2iob.parse(id + '.status', device, { channelName: 'Interval Status' });
+          await this.parseJson(id + '.status', device, { channelName: 'Interval Status' });
           await this.updateActiveAlerts(id, device);
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
             url:
               'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
-              id +
+              rawId +
               '/capabilities?includeConstants=true',
             headers: {
               'x-api-key': this.types[this.config.type]['x-api-key'],
@@ -964,12 +451,12 @@ class ElectroluxAeg extends utils.Adapter {
             },
           })
             .then(async (res) => {
-              this.log.debug(JSON.stringify(res.data));
+              this.logDebugData(res.data);
 
               if (!res.data) {
                 return;
               }
-              this.json2iob.parse(id + '.capabilities', res.data);
+              await this.parseJson(id + '.capabilities', res.data);
               const remoteArray = [
                 { command: 'Refresh', name: 'True = Refresh' },
                 {
@@ -1003,7 +490,7 @@ class ElectroluxAeg extends utils.Adapter {
                 remoteArray.push({ command: command, name: command });
               }
               for (const remote of remoteArray) {
-                this.extendObject(id + '.remote.' + remote.command, {
+                await this.extendObject(id + '.remote.' + remote.command, {
                   type: 'state',
                   common: {
                     name: remote.name || remote.command,
@@ -1019,14 +506,14 @@ class ElectroluxAeg extends utils.Adapter {
             })
             .catch((error) => {
               this.log.info('Capabilities for ' + id + ' not found');
-              error.response && this.log.debug(JSON.stringify(error.response.data));
+              error.response && this.log.debug(stringifyRedactedData(error.response.data));
             });
         }
       })
       .catch((error) => {
         this.log.error('Get Device List failed');
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
   }
   async updateDevices() {
@@ -1038,9 +525,10 @@ class ElectroluxAeg extends utils.Adapter {
       },
     ];
 
-    for (const id of this.deviceArray) {
+    for (const rawId of this.deviceArray) {
+      const id = this.sanitizeObjectId(rawId);
       for (const element of statusArray) {
-        const url = element.url.replace('$id', id);
+        const url = element.url.replace('$id', rawId);
 
         await this.requestClient({
           method: element.method || 'get',
@@ -1055,7 +543,7 @@ class ElectroluxAeg extends utils.Adapter {
           },
         })
           .then(async (res) => {
-            this.log.debug(JSON.stringify(res.data));
+            this.logDebugData(res.data);
             if (!res.data) {
               return;
             }
@@ -1064,7 +552,7 @@ class ElectroluxAeg extends utils.Adapter {
             const forceIndex = undefined;
             const preferedArrayName = undefined;
 
-            this.json2iob.parse(id + '.' + element.path, data, {
+            await this.parseJson(id + '.' + element.path, data, {
               forceIndex: forceIndex,
               preferedArrayName: preferedArrayName,
               channelName: element.desc,
@@ -1074,7 +562,7 @@ class ElectroluxAeg extends utils.Adapter {
           .catch((error) => {
             if (error.response) {
               if (error.response.status === 401) {
-                error.response && this.log.debug(JSON.stringify(error.response.data));
+                error.response && this.log.debug(stringifyRedactedData(error.response.data));
                 this.log.info(element.path + ' receive 401 error. Refresh Token in 60 seconds');
                 this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
                 this.refreshTokenTimeout = this.setTimeout(() => {
@@ -1088,13 +576,13 @@ class ElectroluxAeg extends utils.Adapter {
             if (isTransientFetchError(error)) {
               const status = error.response?.status || error.code || error.message;
               this.log.warn('Temporary API fetch failed for ' + url + ': ' + status);
-              error.response && this.log.debug(JSON.stringify(error.response.data));
+              error.response && this.log.debug(stringifyRedactedData(error.response.data));
               return;
             }
 
             this.log.error('Failed to fetch: ' + url);
             this.log.error(error);
-            error.response && this.log.error(JSON.stringify(error.response.data));
+            error.response && this.log.error(stringifyRedactedData(error.response.data));
           });
       }
     }
@@ -1133,7 +621,7 @@ class ElectroluxAeg extends utils.Adapter {
     this.ws.on('open', () => {
       this.log.info('WebSocket connected');
     });
-    this.ws.on('message', (data, isBinary) => {
+    this.ws.on('message', async (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
       this.log.debug(dataString);
       let json;
@@ -1145,11 +633,11 @@ class ElectroluxAeg extends utils.Adapter {
         return;
       }
       if (json.applianceId) {
-        this.json2iob.parse(json.applianceId, json);
+        await this.parseJson(json.applianceId, json);
       }
       if (json.Payload && json.Payload.Appliances && json.Payload.Appliances) {
         for (const appliance of json.Payload.Appliances) {
-          this.json2iob.parse(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
+          await this.parseJson(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
         }
       }
     });
@@ -1206,7 +694,7 @@ class ElectroluxAeg extends utils.Adapter {
       }).toString(),
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         this.session = this.normalizeSession(res.data);
         this.log.debug('Refresh Token successful');
         // Reconnect the websocket with the new access token and reschedule the next refresh.
@@ -1216,7 +704,7 @@ class ElectroluxAeg extends utils.Adapter {
       .catch((error) => {
         this.log.error('Refresh Token failed');
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
         this.setStateChanged('info.connection', false, true);
       });
   }
@@ -1243,13 +731,13 @@ class ElectroluxAeg extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.logDebugData(res.data);
         this.log.info('Logout successful');
       })
       .catch((error) => {
         this.log.error('Logout failed');
         this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
     // this.requestClient({
     //   method: 'post',
@@ -1272,12 +760,12 @@ class ElectroluxAeg extends utils.Adapter {
     //   },
     // })
     //   .then((res) => {
-    //     this.log.debug(JSON.stringify(res.data));
+    //     this.logDebugData(res.data);
     //     this.log.info('Logout successful');
     //   })
     //   .catch((error) => {
     //     this.log.error(error);
-    //     error.response && this.log.error(JSON.stringify(error.response.data));
+    //     error.response && this.log.error(stringifyRedactedData(error.response.data));
     //   });
   }
   /**
@@ -1293,7 +781,7 @@ class ElectroluxAeg extends utils.Adapter {
       this.reLoginTimeout && this.clearTimeout(this.reLoginTimeout);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.reconnectWebSocketTimeout && this.clearTimeout(this.reconnectWebSocketTimeout);
-      this.updateInterval && this.clearInterval(this.updateInterval);
+      this.updateInterval && this.clearTimeout(this.updateInterval);
       if (this.ws) {
         try {
           this.ws.close();
@@ -1317,7 +805,8 @@ class ElectroluxAeg extends utils.Adapter {
   async onStateChange(id, state) {
     if (state) {
       if (!state.ack) {
-        const deviceId = id.split('.')[2];
+        const safeDeviceId = id.split('.')[2];
+        const deviceId = this.deviceIdMap[safeDeviceId] || safeDeviceId;
         const command = id.split('.')[4];
         if (id.split('.')[3] !== 'remote') {
           return;
@@ -1360,12 +849,12 @@ class ElectroluxAeg extends utils.Adapter {
           data: data,
         })
           .then((res) => {
-            this.log.debug(JSON.stringify(res.data));
+            this.logDebugData(res.data);
           })
           .catch((error) => {
             this.log.error("Couldn't send command");
             this.log.error(error);
-            error.response && this.log.error(JSON.stringify(error.response.data));
+            error.response && this.log.error(stringifyRedactedData(error.response.data));
           });
 
         if (this.refreshTimeout) {
@@ -1385,6 +874,9 @@ if (require.main !== module) {
    * @param {Partial<utils.AdapterOptions>} [options={}]
    */
   module.exports = (options) => new ElectroluxAeg(options);
+  module.exports.sanitizeObjectId = sanitizeObjectId;
+  module.exports.sanitizeJsonKeys = sanitizeJsonKeys;
+  module.exports.stringifyRedactedData = stringifyRedactedData;
 } else {
   // otherwise start the instance directly
   new ElectroluxAeg();
