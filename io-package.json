@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.9",
+    "version": "0.0.10",
     "news": {
+      "0.0.10": {
+        "en": "republished the 0.0.9 migration fixes with npm provenance; sanitized appliance object ids, removed old unsanitized object trees after migration and added safer cloud polling",
+        "de": "0.0.9-Migrationskorrekturen mit npm-Provenance neu veröffentlicht; Geräte-Objekt-IDs bereinigt, alte nicht bereinigte Objektbäume nach der Migration entfernt und sichereres Cloud-Polling ergänzt",
+        "ru": "повторно опубликованы исправления миграции 0.0.9 с npm provenance; очищены идентификаторы объектов устройств, старые неочищенные деревья объектов удаляются после миграции, добавлен более безопасный опрос облака",
+        "pt": "correções de migração 0.0.9 republicadas com proveniência npm; IDs de objeto dos aparelhos sanitizados, árvores antigas removidas após a migração e polling em nuvem mais seguro",
+        "nl": "0.0.9-migratiefixes opnieuw gepubliceerd met npm-provenance; apparaat-object-ID's opgeschoond, oude objectbomen na migratie verwijderd en veiligere cloudpolling toegevoegd",
+        "fr": "correctifs de migration 0.0.9 republiés avec la provenance npm; identifiants d'objets d'appareils assainis, anciens arbres supprimés après migration et polling cloud plus sûr",
+        "it": "correzioni di migrazione 0.0.9 ripubblicate con provenienza npm; ID oggetto sanificati, vecchi alberi rimossi dopo la migrazione e polling cloud più sicuro",
+        "es": "correcciones de migración 0.0.9 republicadas con procedencia npm; IDs de objeto saneados, árboles antiguos eliminados tras la migración y sondeo cloud más seguro",
+        "pl": "poprawki migracji 0.0.9 opublikowane ponownie z npm provenance; oczyszczono identyfikatory obiektów, usunięto stare drzewa po migracji i dodano bezpieczniejsze odpytywanie chmury",
+        "uk": "виправлення міграції 0.0.9 повторно опубліковано з npm provenance; очищено ідентифікатори об'єктів, старі дерева видаляються після міграції, додано безпечніше опитування хмари",
+        "zh-cn": "使用 npm provenance 重新发布 0.0.9 迁移修复；清理设备对象 ID，迁移后删除旧对象树，并改进云端轮询安全性"
+      },
       "0.0.9": {
         "en": "sanitized appliance object ids; old unsanitized object trees are removed after migration; added request timeouts, non-overlapping polling and redacted token logs",
         "de": "Geräte-Objekt-IDs bereinigt; alte nicht bereinigte Objektbäume werden nach der Migration entfernt; Request-Timeouts, überlappungsfreies Polling und geschwärzte Token-Logs hinzugefügt",

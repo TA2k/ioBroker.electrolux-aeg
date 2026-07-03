@@ -32,6 +32,10 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.10 (2026-07-03)
+
+- Republish the 0.0.9 migration fixes with npm provenance.
+
 ### 0.0.9 (2026-07-03)
 
 - Breaking: sanitize appliance object IDs. Characters like `:` are replaced with `_`; update scripts, aliases, VIS and history settings that reference old IDs.
