@@ -1,6 +1,6 @@
 {
   "name": "iobroker.electrolux-aeg",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Adapter for Electrolux and AEG",
   "author": {
     "name": "TA2k",
@@ -42,10 +42,12 @@
   },
   "main": "main.js",
   "files": [
+    "!CHANGELOG_OLD.md",
     "admin{,/!(src)/**}/!(tsconfig|tsconfig.*|.eslintrc).{json,json5}",
     "admin{,/!(src)/**}/*.{html,css,png,svg,jpg,js}",
-    "lib/",
-    "!lib/**/*.test.js",
+    "lib/!(*.test).js",
+    "lib/*.json",
+    "lib/*.d.ts",
     "www/",
     "io-package.json",
     "LICENSE",

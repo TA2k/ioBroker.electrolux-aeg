@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "news": {
+      "0.0.12": {
+        "en": "excluded old changelog files from npm publishing, tightened object id sanitization and cleaned up review comments",
+        "de": "alte Changelog-Dateien vom npm-Paket ausgeschlossen, Objekt-ID-Bereinigung verschärft und Review-Kommentare bereinigt",
+        "ru": "старые файлы changelog исключены из npm-публикации, очистка идентификаторов объектов ужесточена, замечания ревью очищены",
+        "pt": "arquivos antigos de changelog excluídos da publicação npm, sanitização de IDs de objeto reforçada e comentários de revisão limpos",
+        "nl": "oude changelogbestanden uitgesloten van npm-publicatie, object-ID-sanitizing aangescherpt en reviewopmerkingen opgeschoond",
+        "fr": "anciens fichiers changelog exclus de la publication npm, assainissement des identifiants d'objets renforcé et remarques de revue nettoyées",
+        "it": "vecchi file changelog esclusi dalla pubblicazione npm, sanificazione degli ID oggetto rafforzata e commenti di review ripuliti",
+        "es": "archivos antiguos de changelog excluidos de la publicación npm, saneamiento de IDs de objeto reforzado y comentarios de revisión limpiados",
+        "pl": "stare pliki changelog wykluczone z publikacji npm, zaostrzono oczyszczanie identyfikatorów obiektów i uporządkowano uwagi z przeglądu",
+        "uk": "старі файли changelog виключено з npm-публікації, очищення ідентифікаторів об'єктів посилено, зауваження рев'ю прибрано",
+        "zh-cn": "从 npm 发布中排除旧 changelog 文件，收紧对象 ID 清理，并清理评审备注"
+      },
       "0.0.11": {
         "en": "republished the latest repository review fixes with npm provenance and cleaned up obsolete ESLint and Prettier dependencies",
         "de": "Latest-Repository-Review-Fixes mit npm-Provenance neu veröffentlicht und veraltete ESLint- und Prettier-Abhängigkeiten bereinigt",

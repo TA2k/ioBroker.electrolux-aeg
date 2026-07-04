@@ -32,6 +32,12 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.12 (2026-07-04)
+
+- Exclude `CHANGELOG_OLD.md` and test files from npm publishing.
+- Tighten object ID sanitization to replace commas.
+- Remove stale commented-out logout code and document raw/sanitized appliance ID mapping.
+
 ### 0.0.11 (2026-07-03)
 
 - Republish the latest repository review fixes with npm provenance.
@@ -62,8 +68,6 @@ electrolux-aeg.0.XXXX.events
 - fix remote controls
 
 Older changes are documented in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
-
-[Older changelogs can be found there](CHANGELOG_OLD.md)
 
 ## License
 

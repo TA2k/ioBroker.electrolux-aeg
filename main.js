@@ -33,8 +33,8 @@ class ElectroluxAeg extends utils.Adapter {
     this.on('ready', this.onReady.bind(this));
     this.on('stateChange', this.onStateChange.bind(this));
     this.on('unload', this.onUnload.bind(this));
-    this.deviceArray = [];
-    this.deviceIdMap = {};
+    this.deviceArray = []; // Raw appliance IDs for API calls.
+    this.deviceIdMap = {}; // Sanitized ioBroker ID -> raw appliance ID.
     this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
@@ -739,34 +739,6 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.error(error);
         error.response && this.log.error(stringifyRedactedData(error.response.data));
       });
-    // this.requestClient({
-    //   method: 'post',
-    //   maxBodyLength: Infinity,
-    //   url: 'https://accounts.eu1.gigya.com/accounts.logout',
-    //   headers: {
-    //     connection: 'close',
-    //     'Content-Type': 'application/x-www-form-urlencoded',
-    //     'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 4a Build/TQ3A.230805.001.S1)',
-    //   },
-    //   data: {
-    //     apiKey: this.types[this.config.type].apikey,
-    //     format: 'json',
-    //     gmid: ',
-    //     httpStatusCodes: 'false',
-    //     nonce: Date.now() + '_-844501876',
-    //     sdk: 'Android_6.2.1',
-    //     targetEnv: 'mobile',
-    //     ucid: '',
-    //   },
-    // })
-    //   .then((res) => {
-    //     this.logDebugData(res.data);
-    //     this.log.info('Logout successful');
-    //   })
-    //   .catch((error) => {
-    //     this.log.error(error);
-    //     error.response && this.log.error(stringifyRedactedData(error.response.data));
-    //   });
   }
   /**
    * Is called when adapter shuts down - callback has to be called under any circumstances!

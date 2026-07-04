@@ -20,6 +20,7 @@ describe('object id sanitization', () => {
     expect(sanitizeObjectId('944035051_00:44916165-443E07559353')).to.equal(
       '944035051_00_44916165-443E07559353',
     );
+    expect(sanitizeObjectId('appliance,id')).to.equal('appliance_id');
   });
 
   it('sanitizes dynamic JSON keys before json2iob sees them', () => {
