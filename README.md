@@ -32,6 +32,10 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.13 (2026-07-04)
+
+- Trim old `common.news` entries for repository review.
+
 ### 0.0.12 (2026-07-04)
 
 - Exclude `CHANGELOG_OLD.md` and test files from npm publishing.
@@ -62,10 +66,6 @@ electrolux-aeg.0.XXXX.events
 ### 0.0.6 (2025-12-09)
 
 - fix refresh token
-
-### 0.0.5 (2025-03-08)
-
-- fix remote controls
 
 Older changes are documented in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
