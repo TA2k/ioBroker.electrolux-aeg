@@ -32,6 +32,14 @@ electrolux-aeg.0.XXXX.status
 electrolux-aeg.0.XXXX.events
 
 ## Changelog
+### 0.0.14 (2026-08-06)
+
+- Button states (`remote.Refresh`, `remote.START`, `remote.STOPRESET`) are now write-only (`read: false`) as required by the ioBroker state role specification.
+- Sanitize remote command names coming from the cloud API before using them as object IDs; the raw command name is still sent to the API.
+- Redact WebSocket debug logs instead of logging the raw payload.
+- Await the logout request during unload and give it a shorter timeout than regular requests.
+- Update axios to 1.19.0.
+
 ### 0.0.13 (2026-07-04)
 
 - Trim old `common.news` entries for repository review.

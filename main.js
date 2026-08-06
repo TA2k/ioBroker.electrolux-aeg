@@ -17,8 +17,10 @@ const alertLabels = require('./lib/alertLabels.json');
 const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
 const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedData } = require('./lib/objectIds');
+const { buildRemoteStates } = require('./lib/remoteCommands');
 
 const REQUEST_TIMEOUT_MS = 30 * 1000;
+const LOGOUT_TIMEOUT_MS = 2 * 1000;
 const MAX_UPDATE_INTERVAL_MINUTES = 24 * 60;
 
 class ElectroluxAeg extends utils.Adapter {
@@ -35,6 +37,7 @@ class ElectroluxAeg extends utils.Adapter {
     this.on('unload', this.onUnload.bind(this));
     this.deviceArray = []; // Raw appliance IDs for API calls.
     this.deviceIdMap = {}; // Sanitized ioBroker ID -> raw appliance ID.
+    this.commandIdMap = {}; // Full remote state ID -> raw API command name.
     this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
@@ -489,19 +492,21 @@ class ElectroluxAeg extends utils.Adapter {
               for (const command in executeCommand) {
                 remoteArray.push({ command: command, name: command });
               }
-              for (const remote of remoteArray) {
-                await this.extendObject(id + '.remote.' + remote.command, {
-                  type: 'state',
-                  common: {
-                    name: remote.name || remote.command,
-                    type: /** @type {ioBroker.CommonType} */ (remote.type || 'boolean'),
-                    role: remote.role || 'button',
-                    def: remote.def == null ? false : remote.def,
-                    write: true,
-                    read: true,
-                  },
-                  native: {},
-                });
+              const { states, collisions } = buildRemoteStates(remoteArray, id + '.remote');
+              for (const collision of collisions) {
+                this.log.warn(
+                  'Remote command "' +
+                    collision.command +
+                    '" maps to the same object id as "' +
+                    collision.existing +
+                    '" (' +
+                    collision.objectId +
+                    ') and was skipped',
+                );
+              }
+              for (const state of states) {
+                this.commandIdMap[this.namespace + '.' + state.objectId] = state.command;
+                await this.extendObject(state.objectId, state.object);
               }
             })
             .catch((error) => {
@@ -623,7 +628,6 @@ class ElectroluxAeg extends utils.Adapter {
     });
     this.ws.on('message', async (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
-      this.log.debug(dataString);
       let json;
       try {
         json = JSON.parse(dataString);
@@ -632,6 +636,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.error(error);
         return;
       }
+      this.logDebugData(json);
       if (json.applianceId) {
         await this.parseJson(json.applianceId, json);
       }
@@ -713,8 +718,11 @@ class ElectroluxAeg extends utils.Adapter {
     if (!this.session) {
       return;
     }
-    this.requestClient({
+    await this.requestClient({
       method: 'post',
+      // Shorter than the default timeout: logout runs during unload, which js-controller
+      // aborts after stopTimeout (3 s).
+      timeout: LOGOUT_TIMEOUT_MS,
       url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token/revoke',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
@@ -744,11 +752,12 @@ class ElectroluxAeg extends utils.Adapter {
    * Is called when adapter shuts down - callback has to be called under any circumstances!
    * @param {() => void} callback
    */
-  onUnload(callback) {
+  async onUnload(callback) {
     try {
       this.unloading = true;
       this.setStateChanged('info.connection', false, true);
-      this.logout();
+      // Stop all timers and the socket before the logout request, so nothing can
+      // rearm itself while the request is still in flight.
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       this.reLoginTimeout && this.clearTimeout(this.reLoginTimeout);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
@@ -761,6 +770,7 @@ class ElectroluxAeg extends utils.Adapter {
           this.log.debug('ws.close() failed: ' + e);
         }
       }
+      await this.logout();
 
       callback();
     } catch (e) {
@@ -779,10 +789,11 @@ class ElectroluxAeg extends utils.Adapter {
       if (!state.ack) {
         const safeDeviceId = id.split('.')[2];
         const deviceId = this.deviceIdMap[safeDeviceId] || safeDeviceId;
-        const command = id.split('.')[4];
         if (id.split('.')[3] !== 'remote') {
           return;
         }
+        // The object id segment is sanitized; the API expects the raw command name.
+        const command = this.commandIdMap[id] || id.split('.')[4];
 
         if (command === 'Refresh') {
           this.updateDevices();

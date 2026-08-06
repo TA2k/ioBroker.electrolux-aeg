@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.13",
+    "version": "0.0.14",
     "news": {
+      "0.0.14": {
+        "en": "button states are now write-only, remote command names from the API are sanitized before they are used as object ids, websocket debug logs are redacted and logout finishes before unload",
+        "de": "Button-States sind jetzt nur schreibbar, Remote-Befehlsnamen aus der API werden vor der Nutzung als Objekt-ID bereinigt, WebSocket-Debug-Logs werden geschwärzt und der Logout wird vor dem Entladen abgewartet",
+        "ru": "состояния-кнопки теперь только для записи, имена команд из API очищаются перед использованием в идентификаторах объектов, отладочные журналы WebSocket маскируются, а выход завершается до выгрузки",
+        "pt": "estados de botão agora são somente escrita, nomes de comandos da API são sanitizados antes de serem usados como IDs de objeto, logs de depuração do websocket são redigidos e o logout termina antes do descarregamento",
+        "nl": "button-states zijn nu alleen-schrijven, commandonamen uit de API worden opgeschoond voordat ze als object-ID worden gebruikt, websocket-debuglogs worden afgeschermd en de logout wordt afgewacht bij het afsluiten",
+        "fr": "les états de type bouton sont désormais en écriture seule, les noms de commandes de l'API sont assainis avant d'être utilisés comme identifiants d'objets, les journaux de débogage websocket sont masqués et la déconnexion se termine avant le déchargement",
+        "it": "gli stati con ruolo button sono ora di sola scrittura, i nomi dei comandi dell'API vengono sanificati prima di essere usati come ID oggetto, i log di debug websocket sono oscurati e il logout termina prima dello scaricamento",
+        "es": "los estados de botón ahora son solo de escritura, los nombres de comandos de la API se sanean antes de usarse como IDs de objeto, los registros de depuración del websocket se redactan y el cierre de sesión finaliza antes de la descarga",
+        "pl": "stany typu button są teraz tylko do zapisu, nazwy poleceń z API są oczyszczane przed użyciem jako identyfikatory obiektów, logi debugowania websocket są maskowane, a wylogowanie kończy się przed wyładowaniem adaptera",
+        "uk": "стани-кнопки тепер лише для запису, назви команд з API очищуються перед використанням як ідентифікатори об'єктів, налагоджувальні журнали websocket маскуються, а вихід завершується до вивантаження",
+        "zh-cn": "按钮状态现在为只写，来自 API 的命令名称在用作对象 ID 前会被清理，WebSocket 调试日志已脱敏，卸载前会完成登出"
+      },
       "0.0.13": {
         "en": "trimmed old news entries for repository review",
         "de": "alte News-Einträge für die Repository-Prüfung reduziert",
@@ -80,19 +93,6 @@
         "pl": "wzmocniono logowanie, odświeżanie tokena i ponowne łączenie WebSocket; aktywne alerty dostępne z kodem, etykietą, ważnością i liczbą w .status.activeAlert*; poprawiono parametr marki dla kont AEG",
         "uk": "посилено вхід, оновлення токена та повторне підключення WebSocket; активні сповіщення доступні з кодом, міткою, важливістю та кількістю в .status.activeAlert*; виправлено параметр бренду для облікових записів AEG",
         "zh-cn": "增强了登录、令牌刷新和 WebSocket 重连；在 .status.activeAlert* 下公开带代码、标签、严重性和数量的活动警报；修正了 AEG 账户的品牌参数"
-      },
-      "0.0.6": {
-        "en": "fix refresh token",
-        "de": "erfrischungs-token",
-        "ru": "обновление rescoveryken",
-        "pt": "corrigir o token de atualização",
-        "nl": "fix fresh token",
-        "fr": "correction du jeton rafraîchi",
-        "it": "correzione token rinfrescante",
-        "es": "reparar el refresco",
-        "pl": "naprawić token odświeżania",
-        "uk": "фіксувати оновлений токен",
-        "zh-cn": "修正刷新符号"
       }
     },
     "titleLang": {
