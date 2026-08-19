@@ -21,7 +21,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@iobroker/adapter-core": "^3.4.1",
+    "@iobroker/adapter-core": "^3.4.3",
     "axios": "^1.19.0",
     "json2iob": "^2.6.25",
     "strict-uri-encode": "^2.0.0",
