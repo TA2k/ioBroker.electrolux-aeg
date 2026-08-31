@@ -16,6 +16,11 @@ const strictUriEncode = require('strict-uri-encode');
 const alertLabels = require('./lib/alertLabels.json');
 const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
+const { deriveStatus } = require('./lib/derived');
+const { buildCapabilityStates, buildCommandPayload } = require('./lib/capabilities');
+const { collectStateMeta } = require('./lib/stateMeta');
+const { resolveRegionUrls, DEFAULT_URLS, GLOBAL_API_URL } = require('./lib/regionUrls');
+const { loadSession, saveSession, clearSession } = require('./lib/sessionStore');
 const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedData } = require('./lib/objectIds');
 const { buildRemoteStates } = require('./lib/remoteCommands');
 
@@ -38,6 +43,12 @@ class ElectroluxAeg extends utils.Adapter {
     this.deviceArray = []; // Raw appliance IDs for API calls.
     this.deviceIdMap = {}; // Sanitized ioBroker ID -> raw appliance ID.
     this.commandIdMap = {}; // Full remote state ID -> raw API command name.
+    this.derivedState = {}; // Sanitized ioBroker ID -> last derived status, for edge detection.
+    this.capabilityIdMap = {}; // Full control state ID -> {container, key, kind, constValue}.
+    this.controlStates = {}; // Sanitized ioBroker ID -> readable control states of that device.
+    this.stateMetaDone = new Set(); // Object ids that already received role and unit.
+    this.urls = { ...DEFAULT_URLS }; // Regional endpoints, replaced by the identity provider lookup.
+    this.regionGigyaApiKey = null; // Gigya api key reported for the account region.
     this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
@@ -90,7 +101,11 @@ class ElectroluxAeg extends utils.Adapter {
 
     this.subscribeStates('*');
 
-    await this.login();
+    await this.resolveRegion();
+    await this.restoreSession();
+    if (!this.session.accessToken) {
+      await this.login();
+    }
 
     if (this.session.accessToken) {
       await this.getDeviceList();
@@ -159,6 +174,28 @@ class ElectroluxAeg extends utils.Adapter {
     }
     await this.delObjectAsync(rawId, { recursive: true });
     this.log.warn('Migrated object id "' + rawId + '" to "' + safeId + '". Please update scripts, aliases and history settings.');
+  }
+
+  /**
+   * Up to 0.0.14 the WebSocket wrote its payload to `<device>.properties.*` while
+   * polling wrote the same values to `<device>.status.properties.*`. Both paths
+   * now write to `.status`, so drop the duplicated tree once.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   */
+  async removeLegacyWebSocketTree(id) {
+    const oldObject = await this.getObjectAsync(id + '.properties');
+    if (!oldObject) {
+      return;
+    }
+    await this.delObjectAsync(id + '.properties', { recursive: true });
+    this.log.warn(
+      'Removed the duplicated WebSocket state tree "' +
+        id +
+        '.properties". These values now live under "' +
+        id +
+        '.status". Please update scripts, aliases and history settings.',
+    );
   }
 
   createSignature(secret, method, url, parameters) {
@@ -284,17 +321,415 @@ class ElectroluxAeg extends utils.Adapter {
     await this.setStateChangedAsync(id + '.status.activeAlertSeverity', highest, true);
   }
 
+  /**
+   * Create a writable state for every writable capability of an appliance.
+   *
+   * The states live in a separate `control` channel, so the existing `remote`
+   * channel with its buttons and the CustomCommand escape hatch stays untouched.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} capabilities - `/capabilities` response
+   */
+  async createControlStates(id, capabilities) {
+    const { states, skipped, collisions } = buildCapabilityStates(capabilities, id + '.control');
+    if (!states.length) {
+      return;
+    }
+    await this.extendObject(id + '.control', {
+      type: 'channel',
+      common: {
+        name: 'Writable appliance settings',
+      },
+      native: {},
+    });
+    for (const collision of collisions) {
+      this.log.warn(
+        'Capability "' +
+          collision.name +
+          '" maps to the same object id as "' +
+          collision.existing +
+          '" (' +
+          collision.objectId +
+          ') and was skipped',
+      );
+    }
+    for (const name of skipped) {
+      this.log.debug('Capability "' + name + '" is nested deeper than expected and was skipped');
+    }
+    for (const state of states) {
+      this.capabilityIdMap[this.namespace + '.' + state.objectId] = {
+        container: state.container,
+        key: state.key,
+        kind: state.kind,
+        constValue: state.constValue,
+      };
+      await this.extendObject(state.objectId, state.object);
+    }
+    // Keep the readable control states around, so their value can be mirrored from
+    // the reported state - otherwise they would go stale as soon as somebody
+    // changes a setting on the appliance itself.
+    this.controlStates[id] = states.filter((state) => state.kind !== 'const');
+    this.log.debug('Created ' + states.length + ' control states for ' + id);
+  }
+
+  /**
+   * Warn when the appliance is known to have remote control switched off.
+   *
+   * Most appliances only accept commands after remote control was armed on the
+   * device itself. Without this the command is simply swallowed by the cloud and
+   * the log shows nothing. Only clearly negative values are reported, so an
+   * unknown vocabulary does not produce false warnings - the value is logged
+   * with it.
+   *
+   * @param {string} safeDeviceId - sanitized ioBroker device id
+   */
+  async warnIfRemoteControlDisabled(safeDeviceId) {
+    const state = await this.getStateAsync(safeDeviceId + '.status.properties.reported.remoteControl');
+    if (!state || state.val === undefined || state.val === null) {
+      return;
+    }
+    const value = state.val;
+    const disabled =
+      value === false ||
+      ['DISABLED', 'OFF', 'NOT_ENABLED', 'FALSE', 'TEMPORARY_LOCKED'].includes(String(value).toUpperCase());
+    if (disabled) {
+      this.log.warn(
+        'Remote control of ' +
+          safeDeviceId +
+          ' reports "' +
+          value +
+          '". The appliance will most likely ignore this command until remote start is armed on the device itself.',
+      );
+    }
+  }
+
+  /**
+   * Send a command payload to an appliance.
+   *
+   * @param {string} deviceId - raw appliance id
+   * @param {any} data - command payload
+   * @returns {Promise<boolean>} true when the cloud accepted the command
+   */
+  async sendCommand(deviceId, data) {
+    return await this.requestClient({
+      method: 'put',
+      maxBodyLength: Infinity,
+      url:
+        this.urls.api + '/appliance/api/v2/appliances/' +
+        deviceId +
+        '/command?brand=' +
+        (this.config.type === 'aeg' ? 'aeg' : 'electrolux'),
+      headers: {
+        Authorization: 'Bearer ' + this.session.accessToken,
+        'x-api-key': this.types[this.config.type]['x-api-key'],
+        'User-Agent': 'Electrolux/3.2 android/9',
+        Accept: 'application/json',
+        'Accept-Charset': 'UTF-8',
+        'Content-Type': 'application/json',
+        Connection: 'Keep-Alive',
+      },
+      data: data,
+    })
+      .then((res) => {
+        this.logDebugData(res.data);
+        return true;
+      })
+      .catch((error) => {
+        this.log.error("Couldn't send command");
+        this.log.error(error);
+        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        return false;
+      });
+  }
+
+  /**
+   * Single write path for appliance status data. Polling and the WebSocket both
+   * go through here, so both produce the same object tree.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload
+   */
+  async applyStatus(id, data) {
+    await this.parseJson(id + '.status', data, { channelName: 'Interval Status' });
+    // WebSocket messages can be partial updates. Only touch the alert states when
+    // the payload actually carries an `alerts` key, otherwise a delta without
+    // alerts would clear the active alert summary.
+    if (data && data.properties && data.properties.reported && data.properties.reported.alerts !== undefined) {
+      await this.updateActiveAlerts(id, data);
+    }
+    await this.applyStateMeta(id, data);
+    await this.updateDerivedStates(id, data);
+    await this.syncControlStates(id, data);
+  }
+
+  /**
+   * Add role and unit to the reported states that the adapter knows about.
+   *
+   * `json2iob` only knows the data type, so without this every value stays a
+   * plain `value` state without a unit and the ioBroker type detector, VIS and
+   * the history adapters cannot make sense of it. Runs once per state per
+   * adapter start, the object does not change afterwards.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload
+   */
+  async applyStateMeta(id, data) {
+    for (const meta of collectStateMeta(data)) {
+      const objectId =
+        id + '.status.properties.reported.' + meta.path.map((part) => this.sanitizeObjectId(part)).join('.');
+      if (this.stateMetaDone.has(objectId)) {
+        continue;
+      }
+      this.stateMetaDone.add(objectId);
+      const object = await this.getObjectAsync(objectId);
+      if (!object || object.type !== 'state') {
+        continue;
+      }
+      // A model may report a known capability in another shape. Leave those alone
+      // instead of labelling a string as a temperature.
+      if (object.common.type !== meta.type) {
+        this.log.debug(
+          'Skipped metadata for ' + objectId + ': expected type ' + meta.type + ', found ' + object.common.type,
+        );
+        continue;
+      }
+      await this.extendObject(objectId, { common: meta.common });
+    }
+  }
+
+  /**
+   * Mirror the reported values into the writable control states, so they show what
+   * the appliance actually uses and not only what was written last.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload
+   */
+  async syncControlStates(id, data) {
+    const states = this.controlStates[id];
+    const reported = data && data.properties && data.properties.reported;
+    if (!states || !reported) {
+      return;
+    }
+    for (const state of states) {
+      const source = state.container ? reported[state.container] : reported;
+      if (!source || typeof source !== 'object') {
+        continue;
+      }
+      const value = source[state.key];
+      if (value === undefined || value === null) {
+        continue;
+      }
+      const mirrored = state.kind === 'onoff' ? String(value).toUpperCase() === 'ON' : value;
+      await this.setStateChangedAsync(state.objectId, mirrored, true);
+    }
+  }
+
+  /**
+   * Create and update the convenience states (`running`, `timeToEndMinutes`,
+   * `finishTime`, `cycleFinished`) derived from the raw payload.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload
+   */
+  async updateDerivedStates(id, data) {
+    if (!this.derivedState[id]) {
+      // Restore the previous cycle state after an adapter restart, otherwise the
+      // first payload after a restart would look like a fresh program end.
+      const running = await this.getStateAsync(id + '.status.running');
+      const finishTime = await this.getStateAsync(id + '.status.finishTime');
+      this.derivedState[id] = {
+        running: !!(running && running.val),
+        finishTime: finishTime && typeof finishTime.val === 'string' ? finishTime.val : null,
+      };
+    }
+
+    const derived = deriveStatus(data, this.derivedState[id]);
+    if (!derived) {
+      return;
+    }
+
+    await this.extendObject(id + '.status.running', {
+      type: 'state',
+      common: {
+        name: 'A program is currently in progress',
+        type: 'boolean',
+        role: 'indicator.working',
+        read: true,
+        write: false,
+        def: false,
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.timeToEndMinutes', {
+      type: 'state',
+      common: {
+        name: 'Remaining program time',
+        type: 'number',
+        role: 'value.interval',
+        unit: 'min',
+        read: true,
+        write: false,
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.finishTime', {
+      type: 'state',
+      common: {
+        name: 'Estimated end of the running program (ISO 8601)',
+        type: 'string',
+        role: 'value.datetime',
+        read: true,
+        write: false,
+      },
+      native: {},
+    });
+    await this.extendObject(id + '.status.cycleFinished', {
+      type: 'state',
+      common: {
+        name: 'True for the update in which a program finished',
+        type: 'boolean',
+        role: 'indicator',
+        read: true,
+        write: false,
+        def: false,
+      },
+      native: {},
+    });
+
+    await this.setStateChangedAsync(id + '.status.running', derived.running, true);
+    await this.setStateChangedAsync(id + '.status.timeToEndMinutes', derived.timeToEndMinutes, true);
+    await this.setStateChangedAsync(id + '.status.finishTime', derived.finishTime, true);
+    await this.setStateChangedAsync(id + '.status.cycleFinished', derived.cycleFinished, true);
+
+    this.derivedState[id] = derived;
+  }
+
+  /**
+   * Directory for adapter owned files of this instance.
+   *
+   * @returns {string}
+   */
+  dataDir() {
+    return utils.getAbsoluteInstanceDataDir(this);
+  }
+
+  /**
+   * Persist the refresh token, so a restart does not need a new Gigya login.
+   * Repeated logins are what runs an account into the cloud's rate limit.
+   *
+   * @returns {boolean} true when the token was stored
+   */
+  storeSession() {
+    const stored = saveSession(this.dataDir(), this.session);
+    if (!stored) {
+      this.log.debug('Could not store the session, the next start will log in again');
+    }
+    return stored;
+  }
+
+  /**
+   * Try to continue the session of the previous adapter run.
+   */
+  async restoreSession() {
+    const stored = loadSession(this.dataDir());
+    if (!stored) {
+      return;
+    }
+
+    // Use the stored access token while it is still good for a few minutes. A
+    // refresh right after a restart is what the cloud answers with 429.
+    const remaining = stored.expiresAt - Date.now();
+    if (stored.accessToken && remaining > 5 * 60 * 1000) {
+      this.session = {
+        accessToken: stored.accessToken,
+        refreshToken: stored.refreshToken,
+        expiresIn: Math.floor(remaining / 1000),
+      };
+      this.log.info('Continued the stored session, the access token is valid for ' + Math.round(remaining / 60000) + ' more minutes');
+      return;
+    }
+
+    this.session = { refreshToken: stored.refreshToken };
+    // The appliance list is not known yet, so the caller connects the websocket.
+    const result = await this.refreshToken({ reconnect: false });
+    if (this.session.accessToken) {
+      this.log.info('Continued the stored session without a new login');
+      return;
+    }
+    // Only a rejected token is a dead token. A rate limit or a network problem
+    // must not throw away a session that is still valid.
+    if (result.status === 400 || result.status === 401) {
+      this.log.info('The stored session was rejected, logging in again');
+      clearSession(this.dataDir());
+    } else {
+      this.log.info('Could not reuse the stored session (' + result.status + '), logging in again and keeping it');
+    }
+    this.session = {};
+  }
+
+  /**
+   * Gigya api key for the login. The identity provider lookup reports the key of
+   * the account region; the built in key is the European one.
+   *
+   * @returns {string}
+   */
+  gigyaApiKey() {
+    return this.regionGigyaApiKey || this.types[this.config.type].apikey;
+  }
+
+  /**
+   * Ask the cloud where the account lives and switch to the endpoints of that
+   * region. Every failure keeps the European endpoints, which is what the
+   * adapter used before, so a lookup problem cannot break a working setup.
+   */
+  async resolveRegion() {
+    const brand = this.config.type === 'aeg' ? 'aeg' : 'electrolux';
+    await this.requestClient({
+      method: 'get',
+      url:
+        GLOBAL_API_URL +
+        '/one-account-user/api/v1/identity-providers?brand=' +
+        brand +
+        '&email=' +
+        encodeURIComponent(this.config.username),
+      headers: {
+        'x-api-key': this.types[this.config.type]['x-api-key'],
+        'Context-Brand': brand,
+        Accept: 'application/json',
+        'Accept-Charset': 'UTF-8',
+        'User-Agent': 'Ktor client',
+      },
+    })
+      .then((res) => {
+        this.logDebugData(res.data);
+        const region = resolveRegionUrls(res.data, brand);
+        this.urls = { gigya: region.gigya, api: region.api, ws: region.ws };
+        this.regionGigyaApiKey = region.gigyaApiKey;
+        this.log.info('Using the ' + (region.dataCenter || 'EU') + ' region at ' + region.api);
+      })
+      .catch((error) => {
+        // Non EU accounts are the reason this lookup exists. If it keeps failing,
+        // the response is what the adapter needs to support the other regions.
+        this.log.info(
+          'Could not look up the account region (' +
+            (error.response ? error.response.status : error.message) +
+            '), continuing with the European endpoints',
+        );
+        error.response && this.log.debug(stringifyRedactedData(error.response.data));
+      });
+  }
+
   async login() {
     const loginResponse = await this.requestClient({
       method: 'post',
       maxBodyLength: Infinity,
-      url: 'https://accounts.eu1.gigya.com/accounts.login',
+      url: this.urls.gigya + '/accounts.login',
       headers: {
         connection: 'close',
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       data: {
-        apiKey: this.types[this.config.type].apikey,
+        apiKey: this.gigyaApiKey(),
         format: 'json',
         httpStatusCodes: 'true',
         loginID: this.config.username,
@@ -320,7 +755,7 @@ class ElectroluxAeg extends utils.Adapter {
     }
 
     const data = {
-      apiKey: this.types[this.config.type].apikey,
+      apiKey: this.gigyaApiKey(),
       fields: 'country',
       format: 'json',
       httpStatusCodes: 'true',
@@ -333,13 +768,13 @@ class ElectroluxAeg extends utils.Adapter {
     data.sig = this.createSignature(
       loginResponse.sessionInfo.sessionSecret,
       'POST',
-      'https://accounts.eu1.gigya.com/accounts.getJWT',
+      this.urls.gigya + '/accounts.getJWT',
       data,
     );
 
     const jwt = await this.requestClient({
       method: 'post',
-      url: 'https://accounts.eu1.gigya.com/accounts.getJWT',
+      url: this.urls.gigya + '/accounts.getJWT',
       headers: {
         connection: 'close',
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -361,7 +796,7 @@ class ElectroluxAeg extends utils.Adapter {
     }
     await this.requestClient({
       method: 'post',
-      url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token',
+      url: this.urls.api + '/one-account-authorization/api/v1/token',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer',
@@ -383,6 +818,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.logDebugData(res.data);
         this.session = this.normalizeSession(res.data);
         this.log.info('Login successful');
+        this.storeSession();
         this.setStateChanged('info.connection', true, true);
       })
       .catch((error) => {
@@ -394,7 +830,9 @@ class ElectroluxAeg extends utils.Adapter {
   async getDeviceList() {
     await this.requestClient({
       method: 'get',
-      url: 'https://api.eu.ocp.electrolux.one/api-federation/api/v2/api-federation?includeApplianceInfo=true&includeProductCard=true&includeOcpAppliances=true',
+      url:
+        this.urls.api +
+        '/api-federation/api/v2/api-federation?includeApplianceInfo=true&includeProductCard=true&includeOcpAppliances=true',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer ' + this.session.accessToken,
@@ -434,14 +872,14 @@ class ElectroluxAeg extends utils.Adapter {
             native: {},
           });
           await this.removeOldDeviceObject(rawId, id);
+          await this.removeLegacyWebSocketTree(id);
 
-          await this.parseJson(id + '.status', device, { channelName: 'Interval Status' });
-          await this.updateActiveAlerts(id, device);
+          await this.applyStatus(id, device);
           this.log.debug('Fetch capabilities for ' + id);
           await this.requestClient({
             method: 'get',
             url:
-              'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
+              this.urls.api + '/appliance/api/v2/appliances/' +
               rawId +
               '/capabilities?includeConstants=true',
             headers: {
@@ -488,7 +926,9 @@ class ElectroluxAeg extends utils.Adapter {
 }`,
                 },
               ];
-              const executeCommand = res.data.executeCommand.values;
+              // Not every appliance exposes executeCommand; the control states below
+              // must still be created for those.
+              const executeCommand = (res.data.executeCommand && res.data.executeCommand.values) || {};
               for (const command in executeCommand) {
                 remoteArray.push({ command: command, name: command });
               }
@@ -508,6 +948,7 @@ class ElectroluxAeg extends utils.Adapter {
                 this.commandIdMap[this.namespace + '.' + state.objectId] = state.command;
                 await this.extendObject(state.objectId, state.object);
               }
+              await this.createControlStates(id, res.data);
             })
             .catch((error) => {
               this.log.info('Capabilities for ' + id + ' not found');
@@ -526,7 +967,7 @@ class ElectroluxAeg extends utils.Adapter {
       {
         path: 'status',
         desc: 'Interval Status',
-        url: 'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/$id',
+        url: this.urls.api + '/appliance/api/v2/appliances/$id',
       },
     ];
 
@@ -552,17 +993,7 @@ class ElectroluxAeg extends utils.Adapter {
             if (!res.data) {
               return;
             }
-            const data = res.data;
-
-            const forceIndex = undefined;
-            const preferedArrayName = undefined;
-
-            await this.parseJson(id + '.' + element.path, data, {
-              forceIndex: forceIndex,
-              preferedArrayName: preferedArrayName,
-              channelName: element.desc,
-            });
-            await this.updateActiveAlerts(id, data);
+            await this.applyStatus(id, res.data);
           })
           .catch((error) => {
             if (error.response) {
@@ -609,7 +1040,7 @@ class ElectroluxAeg extends utils.Adapter {
     for (const id of this.deviceArray) {
       applianceIds.push({ applianceId: id });
     }
-    this.ws = new WebSocket('https://ws.eu.ocp.electrolux.one/', {
+    this.ws = new WebSocket(this.urls.ws + '/', {
       perMessageDeflate: false,
 
       headers: {
@@ -638,7 +1069,7 @@ class ElectroluxAeg extends utils.Adapter {
       }
       this.logDebugData(json);
       if (json.applianceId) {
-        await this.parseJson(json.applianceId, json);
+        await this.applyStatus(this.sanitizeObjectId(json.applianceId), json);
       }
       if (json.Payload && json.Payload.Appliances && json.Payload.Appliances) {
         for (const appliance of json.Payload.Appliances) {
@@ -678,10 +1109,15 @@ class ElectroluxAeg extends utils.Adapter {
     }, 5000);
   }
 
-  async refreshToken() {
-    await this.requestClient({
+  /**
+   * @param {{reconnect?: boolean}} [options] - set `reconnect: false` during startup,
+   * where the appliance list is not known yet and the caller connects itself
+   */
+  async refreshToken(options = {}) {
+    const reconnect = options.reconnect !== false;
+    return await this.requestClient({
       method: 'post',
-      url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token',
+      url: this.urls.api + '/one-account-authorization/api/v1/token',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer',
@@ -702,15 +1138,20 @@ class ElectroluxAeg extends utils.Adapter {
         this.logDebugData(res.data);
         this.session = this.normalizeSession(res.data);
         this.log.debug('Refresh Token successful');
-        // Reconnect the websocket with the new access token and reschedule the next refresh.
-        this.connectWebSocket();
-        this.scheduleRefreshToken();
+        this.storeSession();
+        if (reconnect) {
+          // Reconnect the websocket with the new access token and reschedule the next refresh.
+          this.connectWebSocket();
+          this.scheduleRefreshToken();
+        }
+        return { ok: true, status: res.status };
       })
       .catch((error) => {
         this.log.error('Refresh Token failed');
         this.log.error(error);
         error.response && this.log.error(stringifyRedactedData(error.response.data));
         this.setStateChanged('info.connection', false, true);
+        return { ok: false, status: error.response ? error.response.status : error.code || 'error' };
       });
   }
 
@@ -723,7 +1164,7 @@ class ElectroluxAeg extends utils.Adapter {
       // Shorter than the default timeout: logout runs during unload, which js-controller
       // aborts after stopTimeout (3 s).
       timeout: LOGOUT_TIMEOUT_MS,
-      url: 'https://api.eu.ocp.electrolux.one/one-account-authorization/api/v1/token/revoke',
+      url: this.urls.api + '/one-account-authorization/api/v1/token/revoke',
       headers: {
         'x-api-key': this.types[this.config.type]['x-api-key'],
         Authorization: 'Bearer ' + this.session.accessToken,
@@ -770,7 +1211,12 @@ class ElectroluxAeg extends utils.Adapter {
           this.log.debug('ws.close() failed: ' + e);
         }
       }
-      await this.logout();
+      // Keep the session for the next start. Revoking it here would force a fresh
+      // Gigya login on every restart, which is what runs an account into the
+      // cloud's rate limit. Only hand the token back when it cannot be stored.
+      if (!this.storeSession()) {
+        await this.logout();
+      }
 
       callback();
     } catch (e) {
@@ -789,56 +1235,50 @@ class ElectroluxAeg extends utils.Adapter {
       if (!state.ack) {
         const safeDeviceId = id.split('.')[2];
         const deviceId = this.deviceIdMap[safeDeviceId] || safeDeviceId;
-        if (id.split('.')[3] !== 'remote') {
-          return;
-        }
-        // The object id segment is sanitized; the API expects the raw command name.
-        const command = this.commandIdMap[id] || id.split('.')[4];
-
-        if (command === 'Refresh') {
-          this.updateDevices();
+        const capability = this.capabilityIdMap[id];
+        if (!capability && id.split('.')[3] !== 'remote') {
           return;
         }
         this.log.debug(deviceId);
-        let data = {
-          executeCommand: command,
-        };
-        if (command === 'CustomCommand') {
-          try {
-            data = JSON.parse(String(state.val));
-          } catch (error) {
-            this.log.error(error);
+
+        /** @type {any} */
+        let data;
+        if (capability) {
+          let programUID;
+          if (capability.container === 'userSelections') {
+            const program = await this.getStateAsync(
+              safeDeviceId + '.status.properties.reported.userSelections.programUID',
+            );
+            programUID = program ? program.val : undefined;
+            if (!programUID) {
+              this.log.debug('No programUID known for ' + safeDeviceId + ', sending the change without it');
+            }
+          }
+          data = buildCommandPayload(capability, state.val, programUID);
+        } else {
+          // The object id segment is sanitized; the API expects the raw command name.
+          const command = this.commandIdMap[id] || id.split('.')[4];
+
+          if (command === 'Refresh') {
+            this.updateDevices();
             return;
+          }
+          data = { executeCommand: command };
+          if (command === 'CustomCommand') {
+            try {
+              data = JSON.parse(String(state.val));
+            } catch (error) {
+              this.log.error(error);
+              return;
+            }
           }
         }
 
-        await this.requestClient({
-          method: 'put',
-          maxBodyLength: Infinity,
-          url:
-            'https://api.eu.ocp.electrolux.one/appliance/api/v2/appliances/' +
-            deviceId +
-            '/command?brand=' +
-            (this.config.type === 'aeg' ? 'aeg' : 'electrolux'),
-          headers: {
-            Authorization: 'Bearer ' + this.session.accessToken,
-            'x-api-key': this.types[this.config.type]['x-api-key'],
-            'User-Agent': 'Electrolux/3.2 android/9',
-            Accept: 'application/json',
-            'Accept-Charset': 'UTF-8',
-            'Content-Type': 'application/json',
-            Connection: 'Keep-Alive',
-          },
-          data: data,
-        })
-          .then((res) => {
-            this.logDebugData(res.data);
-          })
-          .catch((error) => {
-            this.log.error("Couldn't send command");
-            this.log.error(error);
-            error.response && this.log.error(stringifyRedactedData(error.response.data));
-          });
+        await this.warnIfRemoteControlDisabled(safeDeviceId);
+        const accepted = await this.sendCommand(deviceId, data);
+        if (accepted && capability && capability.kind !== 'const') {
+          await this.setStateAsync(id, state.val, true);
+        }
 
         if (this.refreshTimeout) {
           this.clearTimeout(this.refreshTimeout);

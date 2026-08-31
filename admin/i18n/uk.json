@@ -1,8 +1,8 @@
 {
+  "aeg": "AEG",
   "appEmail": "Електронна пошта застосунку",
-  "appPassword": "Пароль застосунку",
   "appName": "Назва застосунку",
-  "updateInterval": "Інтервал оновлення (у хвилинах)",
+  "appPassword": "Пароль застосунку",
   "electrolux": "Electrolux",
-  "aeg": "AEG"
+  "updateInterval": "Інтервал оновлення (у хвилинах)"
 }

@@ -1,8 +1,8 @@
 {
+  "aeg": "AEG",
   "appEmail": "E-mail do aplicativo",
-  "appPassword": "Senha do aplicativo",
   "appName": "Nome do aplicativo",
-  "updateInterval": "Intervalo de atualização (em minutos)",
+  "appPassword": "Senha do aplicativo",
   "electrolux": "Electrolux",
-  "aeg": "AEG"
+  "updateInterval": "Intervalo de atualização (em minutos)"
 }

@@ -23,6 +23,16 @@ Supported appliances are managed through the official [Electrolux](https://www.e
 
 electrolux-aeg.0.XXXX.remote
 
+## Settings
+
+electrolux-aeg.0.XXXX.control
+
+Every writable capability the appliance reports becomes a state in this channel: dropdowns for capabilities with a fixed list of values, switches for ON/OFF capabilities, numbers with their allowed range, and buttons for write-only triggers. Capabilities nested in a container are named `container_capability`, for example `userSelections_analogTemperature`. Writing a state sends the change to the appliance and the value is mirrored back from the appliance on the next update.
+
+Most appliances only accept commands, including `remote.START`, after remote start was armed on the appliance itself. The adapter cannot switch that on; it logs a warning when the appliance reports remote control as switched off.
+
+Some settings are rejected by the cloud for some models. The write is then logged as a warning and the state falls back to the reported value; use `remote.CustomCommand` to send a raw payload in that case.
+
 ## Status
 
 electrolux-aeg.0.XXXX.status
@@ -31,9 +41,33 @@ electrolux-aeg.0.XXXX.status
 
 electrolux-aeg.0.XXXX.events
 
+## Derived states
+
+The adapter computes a few convenience states from the raw payload, so scripts do not have to. They live next to the raw values under `electrolux-aeg.0.XXXX.status`:
+
+| State | Meaning |
+| --- | --- |
+| `running` | A program is in progress. `PAUSED` and `DELAYED_START` count as running. |
+| `timeToEndMinutes` | Remaining program time in minutes, empty when no program is running. |
+| `finishTime` | Estimated end of the running program as an ISO 8601 timestamp. Only rewritten when the estimate moves by more than a minute. |
+| `cycleFinished` | `true` for the single update in which a program finished. Trigger on the change to `true`. |
+
 ## Changelog
 
 ### **WORK IN PROGRESS**
+
+### 0.1.0 (2026-08-31)
+
+- Breaking: WebSocket updates no longer create a second object tree. Values that used to appear under `<appliance>.properties.*` are now written to `<appliance>.status.*` like the polled values, and the old tree is deleted on the first start. Update scripts, aliases, VIS and history settings that reference the old ids.
+- Added derived states `status.running`, `status.timeToEndMinutes`, `status.finishTime` and `status.cycleFinished`.
+- Added a `control` channel with a writable state for every writable capability of an appliance, so settings no longer have to be sent as a hand written `remote.CustomCommand` payload.
+- Appliances without an `executeCommand` capability no longer lose their whole capability parsing.
+- The session is now kept in the instance data directory and reused after a restart, so a restart no longer needs a new login. The stored file holds the tokens only, with owner only permissions, never the user name or the password, and it is dropped as soon as the cloud rejects it.
+- The network interface commands of an appliance are no longer turned into control states. One of them unregisters the appliance from the account.
+- Commands are now logged with a warning when the appliance reports that remote control is switched off, instead of being swallowed silently.
+- The adapter now asks the cloud which region an account belongs to and uses the endpoints of that region. Accounts outside Europe are no longer forced onto the European servers. If the lookup fails, the European endpoints are used as before.
+- Well known reported values now carry a role and a unit (times in seconds, temperatures in °C, humidity and air quality readings), so the ioBroker type detector, VIS and the history adapters can use them.
+- Partial WebSocket updates no longer clear the active alert states.
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
 
 ### 0.0.14 (2026-08-06)
