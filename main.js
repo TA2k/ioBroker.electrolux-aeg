@@ -16,10 +16,10 @@ const strictUriEncode = require('strict-uri-encode');
 const alertLabels = require('./lib/alertLabels.json');
 const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
-const { deriveStatus } = require('./lib/derived');
+const { deriveStatus, metricsToReported } = require('./lib/derived');
 const { buildCapabilityStates, buildCommandPayload } = require('./lib/capabilities');
 const { collectStateMeta } = require('./lib/stateMeta');
-const { resolveRegionUrls, DEFAULT_URLS, GLOBAL_API_URL } = require('./lib/regionUrls');
+const { DEFAULT_URLS } = require('./lib/regionUrls');
 const { loadSession, saveSession, clearSession } = require('./lib/sessionStore');
 const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedData } = require('./lib/objectIds');
 const { buildRemoteStates } = require('./lib/remoteCommands');
@@ -48,7 +48,6 @@ class ElectroluxAeg extends utils.Adapter {
     this.controlStates = {}; // Sanitized ioBroker ID -> readable control states of that device.
     this.stateMetaDone = new Set(); // Object ids that already received role and unit.
     this.urls = { ...DEFAULT_URLS }; // Regional endpoints, replaced by the identity provider lookup.
-    this.regionGigyaApiKey = null; // Gigya api key reported for the account region.
     this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
@@ -62,7 +61,6 @@ class ElectroluxAeg extends utils.Adapter {
     this.reLoginTimeout = null;
     /** @type {ioBroker.Timeout | null | undefined} */
     this.reconnectWebSocketTimeout = null;
-    this.suppressNextWebSocketReconnect = false;
     this.unloading = false;
     this.session = {};
     this.ws = null;
@@ -101,13 +99,15 @@ class ElectroluxAeg extends utils.Adapter {
 
     this.subscribeStates('*');
 
-    await this.resolveRegion();
     await this.restoreSession();
     if (!this.session.accessToken) {
       await this.login();
     }
 
     if (this.session.accessToken) {
+      // A restored or refreshed session skips login(), the only other place that
+      // flips the indicator.
+      this.setStateChanged('info.connection', true, true);
       await this.getDeviceList();
       await this.updateDevices();
       this.scheduleUpdateDevices();
@@ -519,7 +519,10 @@ class ElectroluxAeg extends utils.Adapter {
       if (value === undefined || value === null) {
         continue;
       }
-      const mirrored = state.kind === 'onoff' ? String(value).toUpperCase() === 'ON' : value;
+      // An ON/OFF capability is reported either as the literal `ON`/`OFF` or, as the
+      // oven does for `cavityLight`, as a real boolean. Only the string needs mapping.
+      const mirrored =
+        state.kind === 'onoff' && typeof value !== 'boolean' ? String(value).toUpperCase() === 'ON' : value;
       await this.setStateChangedAsync(state.objectId, mirrored, true);
     }
   }
@@ -577,7 +580,7 @@ class ElectroluxAeg extends utils.Adapter {
       common: {
         name: 'Estimated end of the running program (ISO 8601)',
         type: 'string',
-        role: 'value.datetime',
+        role: 'date.end',
         read: true,
         write: false,
       },
@@ -586,7 +589,7 @@ class ElectroluxAeg extends utils.Adapter {
     await this.extendObject(id + '.status.cycleFinished', {
       type: 'state',
       common: {
-        name: 'True for the update in which a program finished',
+        name: 'True for the update in which a program stopped, completed or aborted',
         type: 'boolean',
         role: 'indicator',
         read: true,
@@ -667,58 +670,6 @@ class ElectroluxAeg extends utils.Adapter {
     this.session = {};
   }
 
-  /**
-   * Gigya api key for the login. The identity provider lookup reports the key of
-   * the account region; the built in key is the European one.
-   *
-   * @returns {string}
-   */
-  gigyaApiKey() {
-    return this.regionGigyaApiKey || this.types[this.config.type].apikey;
-  }
-
-  /**
-   * Ask the cloud where the account lives and switch to the endpoints of that
-   * region. Every failure keeps the European endpoints, which is what the
-   * adapter used before, so a lookup problem cannot break a working setup.
-   */
-  async resolveRegion() {
-    const brand = this.config.type === 'aeg' ? 'aeg' : 'electrolux';
-    await this.requestClient({
-      method: 'get',
-      url:
-        GLOBAL_API_URL +
-        '/one-account-user/api/v1/identity-providers?brand=' +
-        brand +
-        '&email=' +
-        encodeURIComponent(this.config.username),
-      headers: {
-        'x-api-key': this.types[this.config.type]['x-api-key'],
-        'Context-Brand': brand,
-        Accept: 'application/json',
-        'Accept-Charset': 'UTF-8',
-        'User-Agent': 'Ktor client',
-      },
-    })
-      .then((res) => {
-        this.logDebugData(res.data);
-        const region = resolveRegionUrls(res.data, brand);
-        this.urls = { gigya: region.gigya, api: region.api, ws: region.ws };
-        this.regionGigyaApiKey = region.gigyaApiKey;
-        this.log.info('Using the ' + (region.dataCenter || 'EU') + ' region at ' + region.api);
-      })
-      .catch((error) => {
-        // Non EU accounts are the reason this lookup exists. If it keeps failing,
-        // the response is what the adapter needs to support the other regions.
-        this.log.info(
-          'Could not look up the account region (' +
-            (error.response ? error.response.status : error.message) +
-            '), continuing with the European endpoints',
-        );
-        error.response && this.log.debug(stringifyRedactedData(error.response.data));
-      });
-  }
-
   async login() {
     const loginResponse = await this.requestClient({
       method: 'post',
@@ -729,7 +680,7 @@ class ElectroluxAeg extends utils.Adapter {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       data: {
-        apiKey: this.gigyaApiKey(),
+        apiKey: this.types[this.config.type].apikey,
         format: 'json',
         httpStatusCodes: 'true',
         loginID: this.config.username,
@@ -755,7 +706,7 @@ class ElectroluxAeg extends utils.Adapter {
     }
 
     const data = {
-      apiKey: this.gigyaApiKey(),
+      apiKey: this.types[this.config.type].apikey,
       fields: 'country',
       format: 'json',
       httpStatusCodes: 'true',
@@ -1028,10 +979,14 @@ class ElectroluxAeg extends utils.Adapter {
       this.clearTimeout(this.reconnectWebSocketTimeout);
       this.reconnectWebSocketTimeout = null;
     }
-    if (this.ws) {
-      this.suppressNextWebSocketReconnect = true;
+    // Drop the predecessor before closing it. The handlers below ignore a socket
+    // that is not the current one, and clearing the reference first makes that true
+    // no matter whether the close event arrives synchronously or on a later tick.
+    const previous = this.ws;
+    this.ws = null;
+    if (previous) {
       try {
-        this.ws.close();
+        previous.close();
       } catch (e) {
         this.log.debug('ws.close() failed: ' + e);
       }
@@ -1040,7 +995,7 @@ class ElectroluxAeg extends utils.Adapter {
     for (const id of this.deviceArray) {
       applianceIds.push({ applianceId: id });
     }
-    this.ws = new WebSocket(this.urls.ws + '/', {
+    const socket = new WebSocket(this.urls.ws + '/', {
       perMessageDeflate: false,
 
       headers: {
@@ -1054,10 +1009,11 @@ class ElectroluxAeg extends utils.Adapter {
         'User-Agent': 'okhttp/4.10.0',
       },
     });
-    this.ws.on('open', () => {
+    this.ws = socket;
+    socket.on('open', () => {
       this.log.info('WebSocket connected');
     });
-    this.ws.on('message', async (data, isBinary) => {
+    socket.on('message', async (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
       let json;
       try {
@@ -1071,26 +1027,40 @@ class ElectroluxAeg extends utils.Adapter {
       if (json.applianceId) {
         await this.applyStatus(this.sanitizeObjectId(json.applianceId), json);
       }
-      if (json.Payload && json.Payload.Appliances && json.Payload.Appliances) {
+      if (json.Payload && json.Payload.Appliances) {
         for (const appliance of json.Payload.Appliances) {
           await this.parseJson(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
+          // The metrics are the same fields the poll reports, only pushed as they
+          // change. Without this they would live in `events` alone and the reported
+          // tree - and with it every derived and control state - would stay as stale
+          // as the last poll.
+          const reported = metricsToReported(appliance.Metrics);
+          if (Object.keys(reported).length) {
+            await this.applyStatus(this.sanitizeObjectId(appliance.ApplianceId), { properties: { reported: reported } });
+          }
         }
       }
     });
-    this.ws.on('close', () => {
-      this.log.info('WebSocket closed');
-      if (this.suppressNextWebSocketReconnect) {
-        this.suppressNextWebSocketReconnect = false;
+    socket.on('close', () => {
+      // A socket that has already been replaced must stay silent. Deciding this by
+      // identity instead of a flag matters because closing a socket that is not
+      // open emits no close event at all: a flag armed for it would still be set
+      // when the successor dies, and would swallow the only reconnect that counts.
+      if (this.ws !== socket) {
         return;
       }
+      this.log.info('WebSocket closed');
       this.scheduleWebSocketReconnect();
     });
-    this.ws.on('error', (error) => {
+    socket.on('error', (error) => {
       this.log.error(error);
       try {
-        this.ws && this.ws.close();
+        socket.close();
       } catch (e) {
         this.log.debug('ws.close() failed: ' + e);
+      }
+      if (this.ws !== socket) {
+        return;
       }
       this.scheduleWebSocketReconnect();
     });
@@ -1139,6 +1109,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.session = this.normalizeSession(res.data);
         this.log.debug('Refresh Token successful');
         this.storeSession();
+        this.setStateChanged('info.connection', true, true);
         if (reconnect) {
           // Reconnect the websocket with the new access token and reschedule the next refresh.
           this.connectWebSocket();
@@ -1214,7 +1185,9 @@ class ElectroluxAeg extends utils.Adapter {
       // Keep the session for the next start. Revoking it here would force a fresh
       // Gigya login on every restart, which is what runs an account into the
       // cloud's rate limit. Only hand the token back when it cannot be stored.
-      if (!this.storeSession()) {
+      // Without a token there is nothing to store and nothing to revoke; the
+      // revoke request would only earn a 400 from the cloud.
+      if (this.session.refreshToken && !this.storeSession()) {
         await this.logout();
       }
 
