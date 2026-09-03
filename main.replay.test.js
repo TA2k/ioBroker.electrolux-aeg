@@ -64,6 +64,68 @@ describe('adapter flow with the live oven fixtures', () => {
     });
   });
 
+  describe('answers the cloud sends but the adapter cannot use', () => {
+    /**
+     * @param {any} adapter
+     */
+    function log(adapter) {
+      return /** @type {any} */ (adapter).logs.join(' ');
+    }
+
+    it('stops the login when the answer carries no session', async () => {
+      // What Gigya sends for a wrong user name or password: a body, not a rejection.
+      const { adapter, requests } = createTestAdapter({
+        routes: { 'accounts.login': { errorCode: 403042, errorMessage: 'invalid loginID or password' } },
+      });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('the answer carries no session');
+      expect(requestsTo(requests, 'accounts.getJWT')).to.have.length(0);
+      expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('stops the login when the answer carries no id_token', async () => {
+      const { adapter, requests } = createTestAdapter({ routes: { 'accounts.getJWT': { errorCode: 400006 } } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('no id_token');
+      expect(requestsTo(requests, 'authorization/api/v1/token')).to.have.length(0);
+      expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('stops the login when the token exchange carries no access token', async () => {
+      const { adapter } = createTestAdapter({ routes: { 'authorization/api/v1/token': { message: 'no' } } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('no access token');
+      expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('keeps the appliances of the last run when the list cannot be read', async () => {
+      const { adapter } = createTestAdapter({ routes: { 'api-federation': { message: 'nothing here' } } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('no applianceDataResults');
+      // No device tree was invented from an answer nobody could read.
+      expect(await adapter.getObjectAsync(SAFE_ID)).to.equal(null);
+    });
+
+    it('skips an appliance without an id and keeps the others', async () => {
+      const { adapter } = createTestAdapter({
+        routes: { 'api-federation': { applianceDataResults: [{ applianceData: { applianceName: 'ghost' } }, status] } },
+      });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('Skipped an appliance without an applianceId');
+      expect(/** @type {any} */ (await adapter.getObjectAsync(SAFE_ID)).common.name).to.equal('Backofen');
+    });
+  });
+
   describe('configuration', () => {
     it('falls back to the default interval when the value is not a number', async () => {
       // NaN passes every comparison, so without the check it would reach

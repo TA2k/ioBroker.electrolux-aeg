@@ -50,7 +50,7 @@ class ElectroluxAeg extends utils.Adapter {
     this.capabilityIdMap = {}; // Full control state ID -> {container, key, kind, constValue}.
     this.controlStates = {}; // Sanitized ioBroker ID -> readable control states of that device.
     this.stateMetaDone = new Set(); // Object ids that already received role and unit.
-    this.urls = { ...DEFAULT_URLS }; // Regional endpoints, replaced by the identity provider lookup.
+    this.urls = { ...DEFAULT_URLS }; // European endpoints, see lib/regionUrls.js.
     this.FORBIDDEN_CHARS = FORBIDDEN_CHARS;
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({ timeout: REQUEST_TIMEOUT_MS });
@@ -197,6 +197,23 @@ class ElectroluxAeg extends utils.Adapter {
    * @param {string} context - what was being attempted
    * @param {any} error - axios error or anything else that was thrown
    */
+  /**
+   * Report a response that arrived but does not carry what the next step reads.
+   *
+   * The cloud answers some failures with a 200 and a body of its own shape, so a
+   * request that was not rejected still has to be looked at before its fields are
+   * used. Without this the adapter dies on a TypeError deep in the call and the log
+   * shows a stack instead of what went wrong.
+   *
+   * @param {string} context - what was being attempted
+   * @param {any} data - the response body
+   * @returns {false}
+   */
+  reportUnusableResponse(context, data) {
+    this.log.error(context + '. The cloud answered with: ' + stringifyRedactedData(data));
+    return false;
+  }
+
   logRequestError(context, error) {
     const status = error && error.response ? error.response.status : (error && error.code) || '';
     this.log.error(context + ': ' + ((error && error.message) || String(error)) + (status ? ' (' + status + ')' : ''));
@@ -881,6 +898,14 @@ class ElectroluxAeg extends utils.Adapter {
 
       return;
     }
+    const sessionInfo = loginResponse.sessionInfo;
+    if (!sessionInfo || !sessionInfo.sessionToken || !sessionInfo.sessionSecret) {
+      // Gigya reports a wrong user name or password as a body without a session,
+      // not as a rejected request.
+      this.reportUnusableResponse('Login failed, the answer carries no session', loginResponse);
+      this.setStateChanged('info.connection', false, true);
+      return;
+    }
 
     const data = {
       apiKey: this.types[this.config.type].apikey,
@@ -888,13 +913,13 @@ class ElectroluxAeg extends utils.Adapter {
       format: 'json',
       httpStatusCodes: 'true',
       nonce: Date.now(),
-      oauth_token: loginResponse.sessionInfo.sessionToken,
+      oauth_token: sessionInfo.sessionToken,
       sdk: 'Android_6.2.1',
       targetEnv: 'mobile',
       timestamp: Date.now(),
     };
     data.sig = this.createSignature(
-      loginResponse.sessionInfo.sessionSecret,
+      sessionInfo.sessionSecret,
       'POST',
       this.urls.gigya + '/accounts.getJWT',
       data,
@@ -921,6 +946,11 @@ class ElectroluxAeg extends utils.Adapter {
       this.setState('info.connection', false, true);
       return;
     }
+    if (!jwt.id_token) {
+      this.reportUnusableResponse('Login failed, the answer carries no id_token', jwt);
+      this.setStateChanged('info.connection', false, true);
+      return;
+    }
     await this.requestClient({
       method: 'post',
       url: this.urls.api + '/one-account-authorization/api/v1/token',
@@ -943,7 +973,13 @@ class ElectroluxAeg extends utils.Adapter {
     })
       .then((res) => {
         this.logDebugData(res.data);
-        this.session = this.normalizeSession(res.data);
+        const session = this.normalizeSession(res.data);
+        if (!session || !session.accessToken) {
+          this.reportUnusableResponse('Login failed, the answer carries no access token', res.data);
+          this.setStateChanged('info.connection', false, true);
+          return;
+        }
+        this.session = session;
         this.log.info('Login successful');
         this.storeSession();
         this.setStateChanged('info.connection', true, true);
@@ -970,11 +1006,22 @@ class ElectroluxAeg extends utils.Adapter {
     })
       .then(async (res) => {
         this.logDebugData(res.data);
-        res.data = res.data.applianceDataResults;
+        const appliances = res.data && res.data.applianceDataResults;
+        if (!Array.isArray(appliances)) {
+          // Keep whatever the last run found: an answer we cannot read is not the
+          // same as an account without appliances, and the next poll tries again.
+          this.reportUnusableResponse('The appliance list has no applianceDataResults', res.data);
+          return;
+        }
 
-        this.log.info('Found ' + res.data.length + ' devices');
-        for (const device of res.data) {
-          const rawId = device.applianceId;
+        this.log.info('Found ' + appliances.length + ' devices');
+        for (const device of appliances) {
+          const rawId = device && device.applianceId;
+          if (typeof rawId !== 'string' || !rawId) {
+            // One unusable entry must not cost the other appliances their tree.
+            this.log.warn('Skipped an appliance without an applianceId: ' + stringifyRedactedData(device));
+            continue;
+          }
           const id = this.sanitizeObjectId(rawId);
 
           this.deviceArray.push(rawId);
