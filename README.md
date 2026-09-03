@@ -55,6 +55,12 @@ The adapter computes a few convenience states from the raw payload, so scripts d
 
 ### **WORK IN PROGRESS**
 
+- A failed request no longer writes the request itself into the log. An axios error carries the Authorization header in `config`, and the password in the body of the login call; only the message, the status and the redacted response body are logged now.
+- The update interval is validated as a number. A value that was not one passed both bounds and ended up in a timer that fired at once and rescheduled itself without pause. The lower bound of the runtime is the `1` of the admin page instead of `0.5`.
+- An unknown appliance brand stops the adapter with a clear message instead of throwing on the first request.
+- A token refresh that was still in flight when the adapter stopped no longer starts a WebSocket and a timer that nothing will clean up.
+- The adapter subscribes to its control and remote states instead of to everything it writes itself.
+
 - Breaking: `status.finishTime` is now a number, in milliseconds since the epoch, instead of an ISO 8601 string. History and VIS can work with it directly.
 - Breaking: removed `status.timeToEndMinutes`. `status.properties.reported.timeToEnd` already carries the remaining time in seconds with a role and a unit, and `status.finishTime` answers the same question as an absolute instant.
 - Removed the `status.properties.metadata` tree. It carries one cloud timestamp per reported value, but only the device list fills it while the per appliance poll sends an empty object, so its timestamps froze after the first poll while still reading as current.

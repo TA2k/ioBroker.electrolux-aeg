@@ -37,6 +37,8 @@ class FakeAdapter extends EventEmitter {
     this.states = new Map();
     /** @type {string[]} */
     this.logs = [];
+    /** @type {string[]} */
+    this.subscriptions = [];
     const record = (level) => (message) => this.logs.push(level + ': ' + message);
     this.log = { info: record('info'), warn: record('warn'), error: record('error'), debug: record('debug') };
   }
@@ -165,7 +167,12 @@ class FakeAdapter extends EventEmitter {
     return this.states.get(this.fullId(id)) || null;
   }
 
-  subscribeStates() {}
+  /**
+   * @param {string} pattern
+   */
+  subscribeStates(pattern) {
+    this.subscriptions.push(pattern);
+  }
 
   // The adapter arms 20 s command refreshes and the poll interval. Recording the
   // timers instead of running them keeps the tests instant and deterministic.

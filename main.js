@@ -25,8 +25,11 @@ const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedDa
 const { buildRemoteStates } = require('./lib/remoteCommands');
 
 const REQUEST_TIMEOUT_MS = 30 * 1000;
+// The admin UI offers the same bounds, so a value outside them was edited by hand.
+const MIN_UPDATE_INTERVAL_MINUTES = 1;
 const LOGOUT_TIMEOUT_MS = 2 * 1000;
 const MAX_UPDATE_INTERVAL_MINUTES = 24 * 60;
+const DEFAULT_UPDATE_INTERVAL_MINUTES = 10;
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -84,20 +87,39 @@ class ElectroluxAeg extends utils.Adapter {
   async onReady() {
     // Reset the connection indicator during startup
     this.setStateChanged('info.connection', false, true);
-    if (this.config.interval < 0.5) {
-      this.log.info('Set interval to minimum 0.5');
-      this.config.interval = 0.5;
-    }
-    if (this.config.interval > MAX_UPDATE_INTERVAL_MINUTES) {
+    // Number() rather than a comparison: `NaN < 1` and `NaN > 1440` are both false,
+    // so an interval that is not a number would pass both bounds and end up in
+    // setTimeout(NaN), which fires at once and reschedules itself for ever.
+    const interval = Number(this.config.interval);
+    if (!Number.isFinite(interval)) {
+      this.log.info('The update interval is not a number, using ' + DEFAULT_UPDATE_INTERVAL_MINUTES);
+      this.config.interval = DEFAULT_UPDATE_INTERVAL_MINUTES;
+    } else if (interval < MIN_UPDATE_INTERVAL_MINUTES) {
+      this.log.info('Set interval to minimum ' + MIN_UPDATE_INTERVAL_MINUTES);
+      this.config.interval = MIN_UPDATE_INTERVAL_MINUTES;
+    } else if (interval > MAX_UPDATE_INTERVAL_MINUTES) {
       this.log.info('Set interval to maximum ' + MAX_UPDATE_INTERVAL_MINUTES);
       this.config.interval = MAX_UPDATE_INTERVAL_MINUTES;
+    } else {
+      this.config.interval = interval;
+    }
+    if (!this.types[this.config.type]) {
+      // Every request reads its keys from this table, so an unknown brand would throw
+      // on the first call instead of saying what is wrong.
+      this.log.error(
+        'Unknown appliance brand "' + this.config.type + '", expected one of: ' + Object.keys(this.types).join(', '),
+      );
+      return;
     }
     if (!this.config.username || !this.config.password) {
       this.log.error('Please set username and password in the instance settings');
       return;
     }
 
-    this.subscribeStates('*');
+    // onStateChange only ever acts on a control state or a remote button. Watching
+    // the whole namespace also woke it for every value the poll writes.
+    this.subscribeStates('*.control.*');
+    this.subscribeStates('*.remote.*');
 
     await this.restoreSession();
     if (!this.session.accessToken) {
@@ -162,6 +184,25 @@ class ElectroluxAeg extends utils.Adapter {
 
   logDebugData(data) {
     this.log.debug(stringifyRedactedData(data));
+  }
+
+  /**
+   * Report a failed request without handing the request itself to the log.
+   *
+   * An axios error carries the whole request in `config`: the Authorization header
+   * on every call, and on `accounts.login` the password in the body. Logging the
+   * error object writes both into the ioBroker log, which the user shares in issues.
+   * Only the message, the status and the redacted response body go in.
+   *
+   * @param {string} context - what was being attempted
+   * @param {any} error - axios error or anything else that was thrown
+   */
+  logRequestError(context, error) {
+    const status = error && error.response ? error.response.status : (error && error.code) || '';
+    this.log.error(context + ': ' + ((error && error.message) || String(error)) + (status ? ' (' + status + ')' : ''));
+    if (error && error.response && error.response.data !== undefined) {
+      this.log.error(stringifyRedactedData(error.response.data));
+    }
   }
 
   async removeOldDeviceObject(rawId, safeId) {
@@ -537,9 +578,7 @@ class ElectroluxAeg extends utils.Adapter {
         return true;
       })
       .catch((error) => {
-        this.log.error("Couldn't send command");
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Could not send the command', error);
         return false;
       });
   }
@@ -834,8 +873,7 @@ class ElectroluxAeg extends utils.Adapter {
         return res.data;
       })
       .catch((error) => {
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Login request failed', error);
       });
     if (!loginResponse) {
       this.log.error('Login failed #1');
@@ -876,8 +914,7 @@ class ElectroluxAeg extends utils.Adapter {
         return res.data;
       })
       .catch((error) => {
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Login token request failed', error);
       });
     if (!jwt) {
       this.log.error('Login failed #2');
@@ -912,8 +949,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.setStateChanged('info.connection', true, true);
       })
       .catch((error) => {
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Token exchange failed', error);
       });
   }
 
@@ -1052,9 +1088,7 @@ class ElectroluxAeg extends utils.Adapter {
         }
       })
       .catch((error) => {
-        this.log.error('Get Device List failed');
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Could not fetch the appliance list', error);
       });
   }
   async updateDevices() {
@@ -1111,9 +1145,7 @@ class ElectroluxAeg extends utils.Adapter {
               return;
             }
 
-            this.log.error('Failed to fetch: ' + url);
-            this.log.error(error);
-            error.response && this.log.error(stringifyRedactedData(error.response.data));
+            this.logRequestError('Failed to fetch ' + url, error);
           });
       }
     }
@@ -1167,8 +1199,7 @@ class ElectroluxAeg extends utils.Adapter {
       try {
         json = JSON.parse(dataString);
       } catch (error) {
-        this.log.error('Could not parse WebSocket message');
-        this.log.error(error);
+        this.log.error('Could not parse the WebSocket message: ' + (error && error.message));
         return;
       }
       this.logDebugData(json);
@@ -1201,7 +1232,7 @@ class ElectroluxAeg extends utils.Adapter {
       this.scheduleWebSocketReconnect();
     });
     socket.on('error', (error) => {
-      this.log.error(error);
+      this.log.error('WebSocket error: ' + String(error));
       try {
         socket.close();
       } catch (e) {
@@ -1257,6 +1288,11 @@ class ElectroluxAeg extends utils.Adapter {
         this.session = this.normalizeSession(res.data);
         this.log.debug('Refresh Token successful');
         this.storeSession();
+        if (this.unloading) {
+          // A refresh that was already in flight when the adapter stopped must not
+          // start a socket and a timer that nothing will clean up any more.
+          return { ok: true, status: res.status };
+        }
         this.setStateChanged('info.connection', true, true);
         if (reconnect) {
           // Reconnect the websocket with the new access token and reschedule the next refresh.
@@ -1266,9 +1302,7 @@ class ElectroluxAeg extends utils.Adapter {
         return { ok: true, status: res.status };
       })
       .catch((error) => {
-        this.log.error('Refresh Token failed');
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Could not refresh the token', error);
         this.setStateChanged('info.connection', false, true);
         return { ok: false, status: error.response ? error.response.status : error.code || 'error' };
       });
@@ -1303,9 +1337,7 @@ class ElectroluxAeg extends utils.Adapter {
         this.log.info('Logout successful');
       })
       .catch((error) => {
-        this.log.error('Logout failed');
-        this.log.error(error);
-        error.response && this.log.error(stringifyRedactedData(error.response.data));
+        this.logRequestError('Logout failed', error);
       });
   }
   /**
@@ -1390,7 +1422,7 @@ class ElectroluxAeg extends utils.Adapter {
             try {
               data = JSON.parse(String(state.val));
             } catch (error) {
-              this.log.error(error);
+              this.log.error('Could not parse the CustomCommand payload: ' + (error && error.message));
               return;
             }
           }

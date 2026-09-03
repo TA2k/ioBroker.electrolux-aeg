@@ -64,6 +64,67 @@ describe('adapter flow with the live oven fixtures', () => {
     });
   });
 
+  describe('configuration', () => {
+    it('falls back to the default interval when the value is not a number', async () => {
+      // NaN passes every comparison, so without the check it would reach
+      // setTimeout(NaN) and reschedule itself without pause.
+      const { adapter } = createTestAdapter({ config: { interval: 'every now and then' } });
+
+      await adapter.onReady();
+
+      expect(adapter.config.interval).to.equal(10);
+    });
+
+    it('clamps an interval outside the bounds of the admin page', async () => {
+      const low = createTestAdapter({ config: { interval: 0.1 } }).adapter;
+      const high = createTestAdapter({ config: { interval: 99999 } }).adapter;
+
+      await low.onReady();
+      await high.onReady();
+
+      expect(low.config.interval).to.equal(1);
+      expect(high.config.interval).to.equal(24 * 60);
+    });
+
+    it('refuses to start on an unknown appliance brand instead of throwing later', async () => {
+      const { adapter, requests } = createTestAdapter({ config: { type: 'miele' } });
+
+      await adapter.onReady();
+
+      expect(requests).to.have.length(0);
+      expect(/** @type {any} */ (adapter).logs.join(' ')).to.contain('Unknown appliance brand "miele"');
+    });
+
+    it('watches the control and remote states only, not everything it writes itself', async () => {
+      const { adapter } = createTestAdapter();
+
+      await adapter.onReady();
+
+      expect(/** @type {any} */ (adapter).subscriptions).to.deep.equal(['*.control.*', '*.remote.*']);
+    });
+
+    it('never writes the password or a token into the log when a request fails', async () => {
+      // What an axios error really carries: the request, headers and body included.
+      const failure = Object.assign(new Error('Request failed with status code 403'), {
+        config: {
+          url: 'https://accounts.eu1.gigya.com/accounts.login',
+          headers: { Authorization: 'Bearer access-token' },
+          data: { loginID: 'user@example.com', password: 'secret' },
+        },
+        response: { status: 403, data: { errorMessage: 'invalid loginID or password' } },
+      });
+      const { adapter } = createTestAdapter({ routes: { 'accounts.login': failure } });
+
+      await adapter.onReady();
+
+      const log = /** @type {any} */ (adapter).logs.join(' ');
+      expect(log).to.contain('Login request failed');
+      expect(log).to.contain('403');
+      expect(log).to.not.contain('secret');
+      expect(log).to.not.contain('Bearer');
+    });
+  });
+
   describe('shutdown', () => {
     it('does not revoke a token it never had', async () => {
       const { adapter, requests } = createTestAdapter({ config: { username: '', password: '' } });
@@ -331,6 +392,23 @@ describe('adapter flow with the live oven fixtures', () => {
 
       expect(requestsTo(requests, '/command?')).to.have.length(0);
     });
+  });
+});
+
+describe('shutdown while a token refresh is in flight', () => {
+  it('does not start a socket and a timer that nothing will clean up', async () => {
+    const { adapter, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+    const socketsBefore = sockets.length;
+    /** @type {any} */ (adapter).timers.length = 0;
+
+    // The refresh was already on its way when the adapter was told to stop.
+    /** @type {any} */ (adapter).unloading = true;
+    const result = await /** @type {any} */ (adapter).refreshToken();
+
+    expect(result.ok).to.equal(true);
+    expect(sockets).to.have.length(socketsBefore);
+    expect(/** @type {any} */ (adapter).timers).to.have.length(0);
   });
 });
 
