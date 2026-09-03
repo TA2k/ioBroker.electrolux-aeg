@@ -104,14 +104,39 @@ describe('adapter flow with the live oven fixtures', () => {
       expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
     });
 
-    it('keeps the appliances of the last run when the list cannot be read', async () => {
+    it('builds no device tree from a list that cannot be read', async () => {
       const { adapter } = createTestAdapter({ routes: { 'api-federation': { message: 'nothing here' } } });
 
       await adapter.onReady();
 
       expect(log(adapter)).to.contain('no applianceDataResults');
-      // No device tree was invented from an answer nobody could read.
       expect(await adapter.getObjectAsync(SAFE_ID)).to.equal(null);
+    });
+
+    it('keeps the appliances of the last run when a later list cannot be read', async () => {
+      const { adapter, routes } = createTestAdapter();
+      await adapter.onReady();
+      expect(await adapter.getObjectAsync(SAFE_ID)).to.not.equal(null);
+
+      routes['api-federation'] = /** @type {any} */ ({ message: 'nothing here' });
+      await adapter.getDeviceList();
+
+      expect(log(adapter)).to.contain('no applianceDataResults');
+      expect(await adapter.getObjectAsync(SAFE_ID)).to.not.equal(null);
+      expect(/** @type {any} */ (adapter).deviceArray).to.deep.equal([RAW_ID]);
+    });
+
+    it('fetches the list again on the next poll when the first answer could not be read', async () => {
+      const { adapter, routes } = createTestAdapter({ routes: { 'api-federation': { message: 'nothing here' } } });
+      await adapter.onReady();
+      expect(await adapter.getObjectAsync(SAFE_ID)).to.equal(null);
+
+      routes['api-federation'] = { applianceDataResults: [status] };
+      // `timers` is the recorder of the fake adapter; the poll is the one armed with the interval.
+      const poll = /** @type {any} */ (adapter).timers.find((/** @type {any} */ timer) => timer.ms === 10 * 60 * 1000);
+      await poll.handler();
+
+      expect(await adapter.getObjectAsync(SAFE_ID)).to.not.equal(null);
     });
 
     it('skips an appliance without an id and keeps the others', async () => {

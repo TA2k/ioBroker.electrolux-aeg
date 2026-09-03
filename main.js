@@ -147,6 +147,12 @@ class ElectroluxAeg extends utils.Adapter {
     }
     this.updateInterval = this.setTimeout(async () => {
       try {
+        if (!this.deviceArray.length) {
+          // The list is fetched once at start. If that answer could not be read there
+          // is nothing to poll, and without this the adapter stays empty until it is
+          // restarted by hand.
+          await this.getDeviceList();
+        }
         await this.updateDevices();
       } finally {
         this.scheduleUpdateDevices();
@@ -197,6 +203,14 @@ class ElectroluxAeg extends utils.Adapter {
    * @param {string} context - what was being attempted
    * @param {any} error - axios error or anything else that was thrown
    */
+  logRequestError(context, error) {
+    const status = error && error.response ? error.response.status : (error && error.code) || '';
+    this.log.error(context + ': ' + ((error && error.message) || String(error)) + (status ? ' (' + status + ')' : ''));
+    if (error && error.response && error.response.data !== undefined) {
+      this.log.error(stringifyRedactedData(error.response.data));
+    }
+  }
+
   /**
    * Report a response that arrived but does not carry what the next step reads.
    *
@@ -207,19 +221,9 @@ class ElectroluxAeg extends utils.Adapter {
    *
    * @param {string} context - what was being attempted
    * @param {any} data - the response body
-   * @returns {false}
    */
   reportUnusableResponse(context, data) {
     this.log.error(context + '. The cloud answered with: ' + stringifyRedactedData(data));
-    return false;
-  }
-
-  logRequestError(context, error) {
-    const status = error && error.response ? error.response.status : (error && error.code) || '';
-    this.log.error(context + ': ' + ((error && error.message) || String(error)) + (status ? ' (' + status + ')' : ''));
-    if (error && error.response && error.response.data !== undefined) {
-      this.log.error(stringifyRedactedData(error.response.data));
-    }
   }
 
   async removeOldDeviceObject(rawId, safeId) {
@@ -943,7 +947,7 @@ class ElectroluxAeg extends utils.Adapter {
       });
     if (!jwt) {
       this.log.error('Login failed #2');
-      this.setState('info.connection', false, true);
+      this.setStateChanged('info.connection', false, true);
       return;
     }
     if (!jwt.id_token) {

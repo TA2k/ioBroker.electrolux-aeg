@@ -267,7 +267,9 @@ function createTestAdapter(options = {}) {
     adapter.connectWebSocket = () => {};
   }
 
-  return { adapter: adapter, requests: requests, dataDir: dataDir, sockets: FakeWebSocket.created };
+  // `routes` is handed out so a test can answer differently on a second call, which is
+  // what the retry of the appliance list needs.
+  return { adapter: adapter, requests: requests, routes: routes, dataDir: dataDir, sockets: FakeWebSocket.created };
 }
 
 module.exports = { createTestAdapter, FakeWebSocket, RAW_ID, SAFE_ID, status, capabilities };
