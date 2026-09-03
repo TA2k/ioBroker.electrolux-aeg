@@ -1,6 +1,6 @@
 {
   "name": "iobroker.electrolux-aeg",
-  "version": "0.1.0",
+  "version": "0.0.14",
   "description": "Adapter for Electrolux and AEG",
   "author": {
     "name": "TA2k",
