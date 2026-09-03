@@ -133,16 +133,120 @@ describe('adapter flow with the live oven fixtures', () => {
 
     it('writes the derived states for an idle oven', async () => {
       expect(await adapter.getStateAsync(SAFE_ID + '.status.running')).to.deep.equal({ val: false, ack: true });
-      expect(await adapter.getStateAsync(SAFE_ID + '.status.timeToEndMinutes')).to.deep.equal({
+      expect(await adapter.getStateAsync(SAFE_ID + '.status.finishTime')).to.deep.equal({ val: null, ack: true });
+      // The remaining time is not derived, the raw value carries it.
+      expect(await adapter.getObjectAsync(SAFE_ID + '.status.timeToEndMinutes')).to.equal(null);
+      expect(await adapter.getObjectAsync(SAFE_ID + '.status.properties.reported.timeToEnd')).to.not.equal(null);
+      expect(await adapter.getStateAsync(SAFE_ID + '.status.cycleFinished')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('initializes a control state the appliance never reports', async () => {
+      // The oven only reports `targetFoodProbeTemperatureC` with a probe plugged in,
+      // so nothing mirrors it. It must still read as a written, empty state instead
+      // of one the adapter never touched.
+      expect(await adapter.getStateAsync(SAFE_ID + '.control.targetFoodProbeTemperatureC')).to.deep.equal({
         val: null,
         ack: true,
       });
-      expect(await adapter.getStateAsync(SAFE_ID + '.status.cycleFinished')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('keeps the empty and frozen shadow halves out of the tree', async () => {
+      const withMetadata = JSON.parse(JSON.stringify(status));
+      // The device list fills metadata, the per appliance poll does not.
+      withMetadata.properties.metadata = { doorState: { timestamp: 1788343012 } };
+      const { adapter: fresh } = createTestAdapter({
+        routes: { 'api-federation': { applianceDataResults: [withMetadata] }, appliance: withMetadata },
+      });
+      // Left behind by a version that still parsed the metadata: json2iob creates
+      // the channel above every state it writes.
+      await fresh.extendObject(SAFE_ID + '.status.properties.metadata', {
+        type: 'channel',
+        common: { name: 'metadata' },
+        native: {},
+      });
+      await fresh.extendObject(SAFE_ID + '.status.properties.metadata.doorState.timestamp', {
+        type: 'state',
+        common: { name: 'timestamp', type: 'number', role: 'value', read: true, write: false },
+        native: {},
+      });
+
+      await fresh.onReady();
+
+      expect(await fresh.getObjectAsync(SAFE_ID + '.status.properties.metadata')).to.equal(null);
+      // desired and metadataDesired are empty in every payload of both endpoints.
+      expect(await fresh.getObjectAsync(SAFE_ID + '.status.properties.desired')).to.equal(null);
+      expect(await fresh.getObjectAsync(SAFE_ID + '.status.properties.metadataDesired')).to.equal(null);
+      expect(await fresh.getObjectAsync(SAFE_ID + '.status.properties.metadata.doorState.timestamp')).to.equal(null);
+    });
+
+    it('stamps a value that changed during a restart with the moment the oven changed it', async () => {
+      const shadow = JSON.parse(JSON.stringify(status));
+      shadow.properties.reported.doorState = 'CLOSED';
+      shadow.properties.metadata = { doorState: { timestamp: 1788343012 } };
+      const { adapter: restarted } = createTestAdapter({
+        routes: { 'api-federation': { applianceDataResults: [shadow] }, appliance: shadow },
+      });
+      // What the previous run left behind: the door was open when the adapter stopped.
+      restarted.setState(SAFE_ID + '.status.properties.reported.doorState', 'OPEN', true);
+
+      await restarted.onReady();
+
+      const state = await restarted.getStateAsync(SAFE_ID + '.status.properties.reported.doorState');
+      // The parser writes the same value again right after and moves ts to now, but
+      // lc stays where the stamp put it: the change lands in the history at 09:56:52
+      // instead of at the start of the adapter.
+      expect(state).to.deep.include({ val: 'CLOSED', ack: true, lc: 1788343012000 });
+    });
+
+    it('leaves a state the previous run never wrote to the poll', async () => {
+      const shadow = JSON.parse(JSON.stringify(status));
+      shadow.properties.metadata = { doorState: { timestamp: 1788343012 } };
+      const { adapter: fresh } = createTestAdapter({
+        routes: { 'api-federation': { applianceDataResults: [shadow] }, appliance: shadow },
+      });
+
+      await fresh.onReady();
+
+      const state = /** @type {any} */ (await fresh.getStateAsync(SAFE_ID + '.status.properties.reported.doorState'));
+      expect(state.val).to.equal('CLOSED');
+      expect(state.lc).to.equal(undefined);
     });
 
     it('adds role and unit to the reported values it knows', async () => {
       const temperature = await adapter.getObjectAsync(SAFE_ID + '.status.properties.reported.displayTemperatureC');
       expect(temperature.common).to.include({ role: 'value.temperature', unit: '°C' });
+    });
+
+    it('writes an enum of the capability document as one list state', async () => {
+      const object = await adapter.getObjectAsync(SAFE_ID + '.capabilities.applianceState.values');
+      expect(object.type).to.equal('state');
+      expect(object.common).to.include({ type: 'string', role: 'json' });
+      const state = await adapter.getStateAsync(SAFE_ID + '.capabilities.applianceState.values');
+      expect(JSON.parse(String(state.val))).to.include.members(['RUNNING', 'READY_TO_START', 'END_OF_CYCLE']);
+      // A map whose members carry overrides stays a channel.
+      expect((await adapter.getObjectAsync(SAFE_ID + '.capabilities.program.values')).type).to.equal('channel');
+    });
+
+    it('replaces the empty channels an older version created for an enum', async () => {
+      const { adapter: upgraded } = createTestAdapter();
+      const stale = SAFE_ID + '.capabilities.doorState.values';
+      // The shape an older version left behind, here and inside a trigger rule, whose
+      // object id json2iob invents rather than deriving it from the payload.
+      const staleTrigger = SAFE_ID + '.capabilities.applianceState.triggers01.action.executeCommand.values';
+      for (const [channel, member] of [[stale, 'OPEN'], [staleTrigger, 'STOPRESET']]) {
+        await upgraded.extendObject(channel, { type: 'channel', common: { name: 'values' }, native: {} });
+        await upgraded.extendObject(channel + '.' + member, { type: 'channel', common: { name: member }, native: {} });
+      }
+
+      await upgraded.onReady();
+
+      for (const [channel, member] of [[stale, 'OPEN'], [staleTrigger, 'STOPRESET']]) {
+        expect(/** @type {any} */ (await upgraded.getObjectAsync(channel)).type, channel).to.equal('state');
+        expect(await upgraded.getObjectAsync(channel + '.' + member), channel).to.equal(null);
+      }
+      // A map whose members carry their own settings keeps its channel and its states.
+      expect(/** @type {any} */ (await upgraded.getObjectAsync(SAFE_ID + '.capabilities.program.values')).type).to.equal('channel');
+      expect(await upgraded.getObjectAsync(SAFE_ID + '.capabilities.program.values.AUGRATIN.targetTemperatureC.max')).to.not.equal(null);
     });
 
     it('creates the remote buttons of the appliance', async () => {
@@ -187,6 +291,36 @@ describe('adapter flow with the live oven fixtures', () => {
       await adapter.onStateChange(adapter.namespace + '.' + SAFE_ID + '.remote.START', state(true, false));
 
       expect(requestsTo(requests, '/command?')[0].data).to.deep.equal({ executeCommand: 'START' });
+    });
+
+    it('releases a button after the press instead of leaving it pressed', async () => {
+      const { adapter } = createTestAdapter();
+      await adapter.onReady();
+      const button = adapter.namespace + '.' + SAFE_ID + '.remote.START';
+
+      await adapter.onStateChange(button, state(true, false));
+
+      expect(await adapter.getStateAsync(SAFE_ID + '.remote.START')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('releases the refresh button and polls the appliance again', async () => {
+      const { adapter, requests } = createTestAdapter();
+      await adapter.onReady();
+      const before = requestsTo(requests, '/appliances/').length;
+
+      await adapter.onStateChange(adapter.namespace + '.' + SAFE_ID + '.remote.Refresh', state(true, false));
+
+      expect(requestsTo(requests, '/appliances/').length).to.be.greaterThan(before);
+      expect(await adapter.getStateAsync(SAFE_ID + '.remote.Refresh')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('keeps a switch at the value that was written, it is a setting and not a press', async () => {
+      const { adapter } = createTestAdapter();
+      await adapter.onReady();
+
+      await adapter.onStateChange(adapter.namespace + '.' + SAFE_ID + '.control.cavityLight', state(true, false));
+
+      expect(await adapter.getStateAsync(SAFE_ID + '.control.cavityLight')).to.deep.equal({ val: true, ack: true });
     });
 
     it('ignores acknowledged values, so a poll does not trigger a command', async () => {

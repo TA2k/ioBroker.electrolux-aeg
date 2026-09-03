@@ -93,19 +93,6 @@
         "pl": "oczyszczono identyfikatory obiektów urządzeń; stare nieoczyszczone drzewa obiektów są usuwane po migracji; dodano limity czasu żądań, niepokrywające się odpytywanie i ukrywanie tokenów w logach",
         "uk": "ідентифікатори об'єктів пристроїв очищено; старі неочищені дерева об'єктів видаляються після міграції; додано тайм-аути запитів, опитування без накладання та приховання токенів у журналах",
         "zh-cn": "清理了设备对象 ID；迁移后会删除旧的未清理对象树；添加请求超时、无重叠轮询和令牌日志脱敏"
-      },
-      "0.0.8": {
-        "en": "hardened login, token refresh and websocket reconnect; active alerts exposed with code, label, severity and count under .status.activeAlert*; fixed brand parameter for AEG accounts",
-        "de": "Login, Token-Refresh und WebSocket-Reconnect stabilisiert; aktive Alerts mit Code, Klartext, Severity und Anzahl unter .status.activeAlert*; Brand-Parameter für AEG-Konten korrigiert",
-        "ru": "улучшены вход, обновление токена и повторное подключение WebSocket; активные предупреждения доступны с кодом, текстом, важностью и количеством в .status.activeAlert*; исправлен параметр бренда для учетных записей AEG",
-        "pt": "login, atualização de token e reconexão WebSocket reforçados; alertas ativos expostos com código, rótulo, severidade e contagem em .status.activeAlert*; parâmetro de marca corrigido para contas AEG",
-        "nl": "login, tokenvernieuwing en WebSocket-herverbinding verbeterd; actieve meldingen beschikbaar met code, label, ernst en aantal onder .status.activeAlert*; merkparameter voor AEG-accounts gecorrigeerd",
-        "fr": "connexion, actualisation du jeton et reconnexion WebSocket renforcées; alertes actives exposées avec code, libellé, gravité et nombre sous .status.activeAlert*; paramètre de marque corrigé pour les comptes AEG",
-        "it": "accesso, aggiornamento token e riconnessione WebSocket rafforzati; avvisi attivi esposti con codice, etichetta, gravità e conteggio in .status.activeAlert*; parametro brand corretto per gli account AEG",
-        "es": "inicio de sesión, actualización de token y reconexión WebSocket reforzados; alertas activas expuestas con código, etiqueta, severidad y recuento en .status.activeAlert*; parámetro de marca corregido para cuentas AEG",
-        "pl": "wzmocniono logowanie, odświeżanie tokena i ponowne łączenie WebSocket; aktywne alerty dostępne z kodem, etykietą, ważnością i liczbą w .status.activeAlert*; poprawiono parametr marki dla kont AEG",
-        "uk": "посилено вхід, оновлення токена та повторне підключення WebSocket; активні сповіщення доступні з кодом, міткою, важливістю та кількістю в .status.activeAlert*; виправлено параметр бренду для облікових записів AEG",
-        "zh-cn": "增强了登录、令牌刷新和 WebSocket 重连；在 .status.activeAlert* 下公开带代码、标签、严重性和数量的活动警报；修正了 AEG 账户的品牌参数"
       }
     },
     "titleLang": {

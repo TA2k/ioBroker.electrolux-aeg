@@ -48,18 +48,27 @@ The adapter computes a few convenience states from the raw payload, so scripts d
 | State | Meaning |
 | --- | --- |
 | `running` | A program is in progress. `PAUSED` and `DELAYED_START` count as running. |
-| `timeToEndMinutes` | Remaining program time in minutes, empty when no program is running. |
-| `finishTime` | Estimated end of the running program as an ISO 8601 timestamp. Only rewritten when the estimate moves by more than a minute. |
+| `finishTime` | Estimated end of the running program, in milliseconds since the epoch. Empty when no program is running. Only rewritten when the estimate moves by more than a minute. |
 | `cycleFinished` | `true` for the single update in which a program finished. Trigger on the change to `true`. |
 
 ## Changelog
 
 ### **WORK IN PROGRESS**
 
+- Breaking: `status.finishTime` is now a number, in milliseconds since the epoch, instead of an ISO 8601 string. History and VIS can work with it directly.
+- Breaking: removed `status.timeToEndMinutes`. `status.properties.reported.timeToEnd` already carries the remaining time in seconds with a role and a unit, and `status.finishTime` answers the same question as an absolute instant.
+- Removed the `status.properties.metadata` tree. It carries one cloud timestamp per reported value, but only the device list fills it while the per appliance poll sends an empty object, so its timestamps froze after the first poll while still reading as current.
+- The timestamps are not lost: at every start the reported values are written with the moment the appliance changed them, so a change during a restart lands in the history at the time it happened instead of at the start of the adapter. States the previous run never wrote are left to the poll.
+- The enums of the capability document are one state each instead of an empty channel per value. `capabilities.applianceState.values` now holds `["ALARM","DELAYED_START",…]` as JSON; before, every value was a channel without content, 140 of them on an oven. A value that carries its own settings, such as a program with its temperature range, stays a channel. The empty channels of an older version are removed on the first start.
+- The empty `desired` and `metadataDesired` halves of the cloud shadow no longer create empty channels. An appliance that does fill them keeps its values.
+- The WebSocket connect, close and reconnect messages moved from `info` to `debug`. The cloud drops an idle connection after ten minutes, so the cycle repeats all day; `info.connection` carries the state worth watching.
+- A button below `remote` is released after the press. `Refresh` in particular stayed at `true` and unacknowledged for good, because it returned before anything wrote the state back. A switch such as `control.cavityLight` keeps the value that was written, it is a setting and not a press.
+- Control states of a capability the appliance does not report, such as `targetFoodProbeTemperatureC` without a food probe, are written once as empty instead of staying untouched.
+
 ### 0.1.0 (2026-08-31)
 
 - Breaking: WebSocket updates no longer create a second object tree. Values that used to appear under `<appliance>.properties.*` are now written to `<appliance>.status.*` like the polled values, and the old tree is deleted on the first start. Update scripts, aliases, VIS and history settings that reference the old ids.
-- Added derived states `status.running`, `status.timeToEndMinutes`, `status.finishTime` and `status.cycleFinished`.
+- Added derived states `status.running`, `status.finishTime` and `status.cycleFinished`. The remaining time is not among them: `status.properties.reported.timeToEnd` already carries it in seconds, with a role and a unit.
 - Added a `control` channel with a writable state for every writable capability of an appliance, so settings no longer have to be sent as a hand written `remote.CustomCommand` payload.
 - Appliances without an `executeCommand` capability no longer lose their whole capability parsing.
 - The session is now kept in the instance data directory and reused after a restart, so a restart no longer needs a new login. The stored file holds the tokens only, with owner only permissions, never the user name or the password, and it is dropped as soon as the cloud rejects it.

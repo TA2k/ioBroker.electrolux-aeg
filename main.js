@@ -17,8 +17,8 @@ const alertLabels = require('./lib/alertLabels.json');
 const { isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
 const { deriveStatus, metricsToReported } = require('./lib/derived');
-const { buildCapabilityStates, buildCommandPayload } = require('./lib/capabilities');
-const { collectStateMeta } = require('./lib/stateMeta');
+const { buildCapabilityStates, buildCommandPayload, collapseValueLists } = require('./lib/capabilities');
+const { collectStateMeta, collectShadowTimestamps } = require('./lib/stateMeta');
 const { DEFAULT_URLS } = require('./lib/regionUrls');
 const { loadSession, saveSession, clearSession } = require('./lib/sessionStore');
 const { FORBIDDEN_CHARS, sanitizeJsonKeys, sanitizeObjectId, stringifyRedactedData } = require('./lib/objectIds');
@@ -184,18 +184,65 @@ class ElectroluxAeg extends utils.Adapter {
    * @param {string} id - sanitized ioBroker device id
    */
   async removeLegacyWebSocketTree(id) {
-    const oldObject = await this.getObjectAsync(id + '.properties');
-    if (!oldObject) {
-      return;
-    }
-    await this.delObjectAsync(id + '.properties', { recursive: true });
-    this.log.warn(
+    await this.removeObsoleteTree(
+      id + '.properties',
       'Removed the duplicated WebSocket state tree "' +
         id +
         '.properties". These values now live under "' +
         id +
         '.status". Please update scripts, aliases and history settings.',
     );
+  }
+
+  /**
+   * Drop the parts of the cloud shadow that only ever produced empty or frozen states.
+   *
+   * `metadata` holds one cloud timestamp per reported property, but only the device
+   * list endpoint fills it - the per appliance poll sends `"metadata": {}`. The tree
+   * was therefore refreshed once per adapter start and then sat frozen while reading
+   * as current. ioBroker stamps every state itself, so it goes for good, here and in
+   * `applyStatus`.
+   *
+   * `desired` and `metadataDesired` are the pending half of the shadow and were empty
+   * in every payload of both endpoints, so they only ever created an empty channel.
+   * They are dropped while the payload leaves them empty; an appliance that does fill
+   * them keeps its values.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload, decides whether the pending half is empty
+   */
+  async removeShadowTrees(id, data) {
+    await this.removeObsoleteTree(
+      id + '.status.properties.metadata',
+      'Removed the cloud metadata tree "' +
+        id +
+        '.status.properties.metadata". Only the device list refreshed it, so its timestamps froze after ' +
+        'the first poll. Use the ioBroker timestamp of the state itself instead.',
+    );
+    const properties = (data && data.properties) || {};
+    for (const key of ['desired', 'metadataDesired']) {
+      const value = properties[key];
+      if (value && typeof value === 'object' && !Object.keys(value).length) {
+        await this.removeObsoleteTree(id + '.status.properties.' + key, '');
+      }
+    }
+  }
+
+  /**
+   * Delete a part of the state tree that the adapter no longer writes, once.
+   *
+   * @param {string} objectId - full id of the object to drop
+   * @param {string} message - warning to log, empty for a tree that never carried a value
+   */
+  async removeObsoleteTree(objectId, message) {
+    const oldObject = await this.getObjectAsync(objectId);
+    if (!oldObject) {
+      return;
+    }
+    await this.delObjectAsync(objectId, { recursive: true });
+    if (message) {
+      this.log.warn(message);
+    }
   }
 
   createSignature(secret, method, url, parameters) {
@@ -369,7 +416,62 @@ class ElectroluxAeg extends utils.Adapter {
     // the reported state - otherwise they would go stale as soon as somebody
     // changes a setting on the appliance itself.
     this.controlStates[id] = states.filter((state) => state.kind !== 'const');
+    // A capability the appliance does not report - `targetFoodProbeTemperatureC`
+    // while no probe is plugged in - is never touched by syncControlStates, and a
+    // state that was never written has neither an ack nor a timestamp. Write the
+    // unknown value once, so it reads as "not set yet" instead of as a state the
+    // adapter forgot about.
+    for (const state of this.controlStates[id]) {
+      if (!(await this.getStateAsync(state.objectId))) {
+        await this.setStateAsync(state.objectId, null, true);
+      }
+    }
     this.log.debug('Created ' + states.length + ' control states for ' + id);
+  }
+
+  /**
+   * Delete the empty channels an older version created where a collapsed enum list
+   * now goes.
+   *
+   * json2iob turns the old channel into a state on its own - it extends the object -
+   * but the members below it would stay behind as orphans under that state.
+   *
+   * Found by shape rather than by path: a `values` channel of the old kind holds
+   * nothing but a childless channel per enum member, so no state exists anywhere
+   * below it, while a map that stays a channel - a program with its temperature range
+   * - always has states underneath. That test also reaches the enums inside the
+   * `triggers` arrays, whose object ids json2iob makes up by a heuristic of its own
+   * (`triggers01`, a preferred key, a special case for two string members), so no
+   * path computed here could name them reliably.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   */
+  async removeCollapsedValueChannels(id) {
+    const prefix = this.namespace + '.' + id + '.capabilities.';
+    const range = { startkey: prefix, endkey: prefix + '香' };
+    const channels = await this.getObjectViewAsync('system', 'channel', range);
+    const states = await this.getObjectViewAsync('system', 'state', range);
+    const stateIds = ((states && states.rows) || []).map((row) => row.id);
+    for (const row of (channels && channels.rows) || []) {
+      if (!row.id.endsWith('.values') || stateIds.some((stateId) => stateId.startsWith(row.id + '.'))) {
+        continue;
+      }
+      await this.delObjectAsync(row.id, { recursive: true });
+    }
+  }
+
+  /**
+   * Put a button back after it was pressed.
+   *
+   * Without this the state stays at `true` and unacknowledged for good: the admin
+   * tree shows a button that looks permanently pressed and a command that was never
+   * confirmed. It is released whether or not the cloud accepted the command - a
+   * button is the press, not the result, and a failure is in the log.
+   *
+   * @param {string} id - full id of the button state
+   */
+  async releaseButton(id) {
+    await this.setStateAsync(id, false, true);
   }
 
   /**
@@ -450,6 +552,16 @@ class ElectroluxAeg extends utils.Adapter {
    * @param {any} data - appliance payload
    */
   async applyStatus(id, data) {
+    if (data && data.properties) {
+      // See removeShadowTrees(): the timestamps freeze, the pending half stays empty.
+      delete data.properties.metadata;
+      for (const key of ['desired', 'metadataDesired']) {
+        const value = data.properties[key];
+        if (value && typeof value === 'object' && !Object.keys(value).length) {
+          delete data.properties[key];
+        }
+      }
+    }
     await this.parseJson(id + '.status', data, { channelName: 'Interval Status' });
     // WebSocket messages can be partial updates. Only touch the alert states when
     // the payload actually carries an `alerts` key, otherwise a delta without
@@ -460,6 +572,41 @@ class ElectroluxAeg extends utils.Adapter {
     await this.applyStateMeta(id, data);
     await this.updateDerivedStates(id, data);
     await this.syncControlStates(id, data);
+  }
+
+  /**
+   * Stamp the reported states with the moment the appliance changed them, not with
+   * the moment this start happened to poll them.
+   *
+   * Only the device list carries a filled shadow `metadata`, so this runs once per
+   * start - which is exactly when it pays off. After a restart the poll would give
+   * every value the start time, and a change that happened during the downtime would
+   * land in the history at the wrong moment.
+   *
+   * Written before json2iob sees the payload: js-controller derives `lc` from `ts`
+   * when the value changes, so this write is the change, and the parser's own write
+   * a moment later finds the same value and leaves `lc` alone. A state that does not
+   * exist yet is skipped - a first start has no history worth preserving, and writing
+   * one would only warn about the missing object.
+   *
+   * @param {string} id - sanitized ioBroker device id
+   * @param {any} data - appliance payload, before applyStatus drops the metadata
+   */
+  async stampReportedTimestamps(id, data) {
+    // A shadow timestamp from the future means the appliance clock runs ahead of
+    // ours; stamping with it would park the value at the end of every history query.
+    const limit = Date.now() + 60 * 1000;
+    for (const entry of collectShadowTimestamps(data)) {
+      if (entry.ts > limit) {
+        this.log.debug('Ignored a shadow timestamp ahead of our clock: ' + entry.path.join('.') + ' ' + entry.ts);
+        continue;
+      }
+      const objectId = id + '.status.properties.reported.' + entry.path.map((part) => this.sanitizeObjectId(part)).join('.');
+      if (!(await this.getStateAsync(objectId))) {
+        continue;
+      }
+      await this.setStateAsync(objectId, { val: entry.value, ack: true, ts: entry.ts });
+    }
   }
 
   /**
@@ -528,8 +675,11 @@ class ElectroluxAeg extends utils.Adapter {
   }
 
   /**
-   * Create and update the convenience states (`running`, `timeToEndMinutes`,
-   * `finishTime`, `cycleFinished`) derived from the raw payload.
+   * Create and update the convenience states (`running`, `finishTime`,
+   * `cycleFinished`) derived from the raw payload.
+   *
+   * The remaining time is not among them: `properties.reported.timeToEnd` already
+   * carries it in seconds, with role and unit set by `applyStateMeta`.
    *
    * @param {string} id - sanitized ioBroker device id
    * @param {any} data - appliance payload
@@ -542,7 +692,7 @@ class ElectroluxAeg extends utils.Adapter {
       const finishTime = await this.getStateAsync(id + '.status.finishTime');
       this.derivedState[id] = {
         running: !!(running && running.val),
-        finishTime: finishTime && typeof finishTime.val === 'string' ? finishTime.val : null,
+        finishTime: finishTime && typeof finishTime.val === 'number' ? finishTime.val : null,
       };
     }
 
@@ -563,23 +713,13 @@ class ElectroluxAeg extends utils.Adapter {
       },
       native: {},
     });
-    await this.extendObject(id + '.status.timeToEndMinutes', {
-      type: 'state',
-      common: {
-        name: 'Remaining program time',
-        type: 'number',
-        role: 'value.interval',
-        unit: 'min',
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
     await this.extendObject(id + '.status.finishTime', {
       type: 'state',
       common: {
-        name: 'Estimated end of the running program (ISO 8601)',
-        type: 'string',
+        // Milliseconds since the epoch, the unit ioBroker uses everywhere else
+        // (`state.ts`, `state.lc`), so history and VIS can work with it directly.
+        name: 'Estimated end of the running program',
+        type: 'number',
         role: 'date.end',
         read: true,
         write: false,
@@ -600,7 +740,6 @@ class ElectroluxAeg extends utils.Adapter {
     });
 
     await this.setStateChangedAsync(id + '.status.running', derived.running, true);
-    await this.setStateChangedAsync(id + '.status.timeToEndMinutes', derived.timeToEndMinutes, true);
     await this.setStateChangedAsync(id + '.status.finishTime', derived.finishTime, true);
     await this.setStateChangedAsync(id + '.status.cycleFinished', derived.cycleFinished, true);
 
@@ -824,6 +963,8 @@ class ElectroluxAeg extends utils.Adapter {
           });
           await this.removeOldDeviceObject(rawId, id);
           await this.removeLegacyWebSocketTree(id);
+          await this.removeShadowTrees(id, device);
+          await this.stampReportedTimestamps(id, device);
 
           await this.applyStatus(id, device);
           this.log.debug('Fetch capabilities for ' + id);
@@ -848,7 +989,10 @@ class ElectroluxAeg extends utils.Adapter {
               if (!res.data) {
                 return;
               }
-              await this.parseJson(id + '.capabilities', res.data);
+              await this.removeCollapsedValueChannels(id);
+              // Every collapsed map keeps the key it had, which the cloud always calls
+              // `values`, so one role covers them all.
+              await this.parseJson(id + '.capabilities', collapseValueLists(res.data), { roles: { values: 'json' } });
               const remoteArray = [
                 { command: 'Refresh', name: 'True = Refresh' },
                 {
@@ -1011,7 +1155,11 @@ class ElectroluxAeg extends utils.Adapter {
     });
     this.ws = socket;
     socket.on('open', () => {
-      this.log.info('WebSocket connected');
+      // The cloud drops an idle socket after exactly 600 s, so this whole cycle
+      // repeats every ten minutes for as long as the adapter runs. At `info` that
+      // is ~430 lines a day per appliance and drowns out everything else;
+      // `info.connection` already carries the state worth watching.
+      this.log.debug('WebSocket connected');
     });
     socket.on('message', async (data, isBinary) => {
       const dataString = isBinary ? data : data.toString();
@@ -1049,7 +1197,7 @@ class ElectroluxAeg extends utils.Adapter {
       if (this.ws !== socket) {
         return;
       }
-      this.log.info('WebSocket closed');
+      this.log.debug('WebSocket closed');
       this.scheduleWebSocketReconnect();
     });
     socket.on('error', (error) => {
@@ -1073,7 +1221,7 @@ class ElectroluxAeg extends utils.Adapter {
     if (this.reconnectWebSocketTimeout) {
       this.clearTimeout(this.reconnectWebSocketTimeout);
     }
-    this.log.info('Reconnect WebSocket in 5 seconds');
+    this.log.debug('Reconnect WebSocket in 5 seconds');
     this.reconnectWebSocketTimeout = this.setTimeout(() => {
       this.connectWebSocket();
     }, 5000);
@@ -1233,7 +1381,8 @@ class ElectroluxAeg extends utils.Adapter {
           const command = this.commandIdMap[id] || id.split('.')[4];
 
           if (command === 'Refresh') {
-            this.updateDevices();
+            await this.updateDevices();
+            await this.releaseButton(id);
             return;
           }
           data = { executeCommand: command };
@@ -1249,7 +1398,13 @@ class ElectroluxAeg extends utils.Adapter {
 
         await this.warnIfRemoteControlDisabled(safeDeviceId);
         const accepted = await this.sendCommand(deviceId, data);
-        if (accepted && capability && capability.kind !== 'const') {
+        // A button is momentary. Every boolean below `remote` is one, and so is a
+        // capability that carries a single value, while a switch such as
+        // `control.cavityLight` is a setting and keeps what was written.
+        const isButton = capability ? capability.kind === 'const' : typeof state.val === 'boolean';
+        if (isButton) {
+          await this.releaseButton(id);
+        } else if (accepted) {
           await this.setStateAsync(id, state.val, true);
         }
 

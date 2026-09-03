@@ -33,6 +33,7 @@ class FakeAdapter extends EventEmitter {
     /** @type {Map<string, any>} */
     this.objects = new Map();
     /** @type {Map<string, {val: any, ack: boolean}>} */
+    /** @type {Map<string, {val: any, ack: boolean, ts?: number, lc?: number}>} */
     this.states = new Map();
     /** @type {string[]} */
     this.logs = [];
@@ -68,6 +69,24 @@ class FakeAdapter extends EventEmitter {
     return this.extendObject(id, obj);
   }
 
+  /**
+   * Enough of the real view for removeCollapsedValueChannels: the objects of one
+   * type whose full id falls into the given key range.
+   *
+   * @param {string} design
+   * @param {string} type
+   * @param {{startkey: string, endkey: string}} params
+   */
+  async getObjectViewAsync(design, type, params) {
+    const rows = [];
+    for (const [id, object] of this.objects) {
+      if (object.type === type && id >= params.startkey && id <= params.endkey) {
+        rows.push({ id: id, value: object });
+      }
+    }
+    return { rows: rows };
+  }
+
   async getObjectAsync(id) {
     return this.objects.get(this.fullId(id)) || null;
   }
@@ -82,12 +101,48 @@ class FakeAdapter extends EventEmitter {
     }
   }
 
+  /**
+   * js-controller takes either a bare value or a state object, and the adapter uses
+   * both: json2iob writes values, stampReportedTimestamps writes `{val, ack, ts}`.
+   * A payload value is never an object with a `val` member, so telling the two apart
+   * by that member is safe here.
+   *
+   * `lc` follows the real rule - it moves to `ts` when the value changes and is kept
+   * otherwise - because that is what survives the parser writing the same value again.
+   * ponytail: only states that were written with an explicit `ts` carry `ts`/`lc` at
+   * all, so the plain `{val, ack}` assertions of the other tests stay readable. Give
+   * every state a `ts` here if a test ever needs to compare write times.
+   *
+   * @param {string} id
+   * @param {any} val
+   * @param {any} ack
+   */
+  writeState(id, val, ack) {
+    const key = this.fullId(id);
+    const previous = this.states.get(key);
+    if (val === null || typeof val !== 'object' || !('val' in val)) {
+      const next = { val: val, ack: !!ack };
+      if (previous && previous.lc !== undefined && previous.val === val) {
+        /** @type {any} */ (next).lc = previous.lc;
+      }
+      this.states.set(key, next);
+      return;
+    }
+    const ts = typeof val.ts === 'number' ? val.ts : Date.now();
+    this.states.set(key, {
+      val: val.val,
+      ack: !!val.ack,
+      ts: ts,
+      lc: previous && previous.val === val.val && previous.lc !== undefined ? previous.lc : ts,
+    });
+  }
+
   async setStateAsync(id, val, ack) {
-    this.states.set(this.fullId(id), { val: val, ack: !!ack });
+    this.writeState(id, val, ack);
   }
 
   setState(id, val, ack) {
-    this.states.set(this.fullId(id), { val: val, ack: !!ack });
+    this.writeState(id, val, ack);
   }
 
   async setStateChangedAsync(id, val, ack) {
