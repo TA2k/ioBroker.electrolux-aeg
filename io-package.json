@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.14",
+    "version": "0.1.0",
     "news": {
+      "0.1.0": {
+        "en": "Breaking: WebSocket updates now write to the status tree; added derived states, writable control states, roles and units, region lookup and session reuse.",
+        "de": "Breaking: WebSocket-Updates schreiben jetzt in den Status-Baum; neue abgeleitete States, schreibbare Control-States, Rollen und Einheiten, Region-Erkennung und Session-Wiederverwendung.",
+        "ru": "Нарушение: обновления WebSocket теперь записываются в дерево состояний; добавлены производные состояния, записываемые состояния управления, роли и юниты, поиск региона и повторное использование сеанса.",
+        "pt": "Quebrando: as atualizações do WebSocket agora gravam na árvore de status; estados derivados adicionados, estados de controle graváveis, funções e unidades, pesquisa de região e reutilização de sessão.",
+        "nl": "Breaking: WebSocket-updates schrijven nu naar de statusboom; afgeleide statussen, beschrijfbare controlestatussen, rollen en eenheden, opzoeken van regio's en hergebruik van sessies toegevoegd.",
+        "fr": "Rupture : les mises à jour de WebSocket écrivent désormais dans l'arborescence d'état ; ajout d'états dérivés, d'états de contrôle inscriptibles, de rôles et d'unités, de recherche de région et de réutilisation de session.",
+        "it": "Interruzione: gli aggiornamenti WebSocket ora scrivono nell'albero dello stato; aggiunti stati derivati, stati di controllo scrivibili, ruoli e unità, ricerca di regioni e riutilizzo di sessioni.",
+        "es": "Última hora: las actualizaciones de WebSocket ahora escriben en el árbol de estado; Se agregaron estados derivados, estados de control grabables, roles y unidades, búsqueda de regiones y reutilización de sesiones.",
+        "pl": "Błąd: aktualizacje protokołu WebSocket są teraz zapisywane w drzewie stanu; dodano stany pochodne, zapisywalne stany kontrolne, role i jednostki, wyszukiwanie regionów i ponowne wykorzystanie sesji.",
+        "uk": "Порушення: оновлення WebSocket тепер записуються в дерево стану; додано похідні стани, доступні для запису контрольні стани, ролі та одиниці, пошук регіону та повторне використання сеансу.",
+        "zh-cn": "重大突破：WebSocket 更新现在写入状态树；添加了派生状态、可写控制状态、角色和单元、区域查找和会话重用。"
+      },
       "0.0.14": {
         "en": "button states are now write-only, remote command names from the API are sanitized before they are used as object ids, websocket debug logs are redacted and logout finishes before unload",
         "de": "Button-States sind jetzt nur schreibbar, Remote-Befehlsnamen aus der API werden vor der Nutzung als Objekt-ID bereinigt, WebSocket-Debug-Logs werden geschwärzt und der Logout wird vor dem Entladen abgewartet",
@@ -80,19 +93,6 @@
         "pl": "oczyszczono identyfikatory obiektów urządzeń; stare nieoczyszczone drzewa obiektów są usuwane po migracji; dodano limity czasu żądań, niepokrywające się odpytywanie i ukrywanie tokenów w logach",
         "uk": "ідентифікатори об'єктів пристроїв очищено; старі неочищені дерева об'єктів видаляються після міграції; додано тайм-аути запитів, опитування без накладання та приховання токенів у журналах",
         "zh-cn": "清理了设备对象 ID；迁移后会删除旧的未清理对象树；添加请求超时、无重叠轮询和令牌日志脱敏"
-      },
-      "0.0.8": {
-        "en": "hardened login, token refresh and websocket reconnect; active alerts exposed with code, label, severity and count under .status.activeAlert*; fixed brand parameter for AEG accounts",
-        "de": "Login, Token-Refresh und WebSocket-Reconnect stabilisiert; aktive Alerts mit Code, Klartext, Severity und Anzahl unter .status.activeAlert*; Brand-Parameter für AEG-Konten korrigiert",
-        "ru": "улучшены вход, обновление токена и повторное подключение WebSocket; активные предупреждения доступны с кодом, текстом, важностью и количеством в .status.activeAlert*; исправлен параметр бренда для учетных записей AEG",
-        "pt": "login, atualização de token e reconexão WebSocket reforçados; alertas ativos expostos com código, rótulo, severidade e contagem em .status.activeAlert*; parâmetro de marca corrigido para contas AEG",
-        "nl": "login, tokenvernieuwing en WebSocket-herverbinding verbeterd; actieve meldingen beschikbaar met code, label, ernst en aantal onder .status.activeAlert*; merkparameter voor AEG-accounts gecorrigeerd",
-        "fr": "connexion, actualisation du jeton et reconnexion WebSocket renforcées; alertes actives exposées avec code, libellé, gravité et nombre sous .status.activeAlert*; paramètre de marque corrigé pour les comptes AEG",
-        "it": "accesso, aggiornamento token e riconnessione WebSocket rafforzati; avvisi attivi esposti con codice, etichetta, gravità e conteggio in .status.activeAlert*; parametro brand corretto per gli account AEG",
-        "es": "inicio de sesión, actualización de token y reconexión WebSocket reforzados; alertas activas expuestas con código, etiqueta, severidad y recuento en .status.activeAlert*; parámetro de marca corregido para cuentas AEG",
-        "pl": "wzmocniono logowanie, odświeżanie tokena i ponowne łączenie WebSocket; aktywne alerty dostępne z kodem, etykietą, ważnością i liczbą w .status.activeAlert*; poprawiono parametr marki dla kont AEG",
-        "uk": "посилено вхід, оновлення токена та повторне підключення WebSocket; активні сповіщення доступні з кодом, міткою, важливістю та кількістю в .status.activeAlert*; виправлено параметр бренду для облікових записів AEG",
-        "zh-cn": "增强了登录、令牌刷新和 WebSocket 重连；在 .status.activeAlert* 下公开带代码、标签、严重性和数量的活动警报；修正了 AEG 账户的品牌参数"
       }
     },
     "titleLang": {
@@ -143,7 +143,7 @@
     "type": "household",
     "compact": true,
     "connectionType": "cloud",
-    "dataSource": "poll",
+    "dataSource": "push",
     "stopTimeout": 3000,
     "adminUI": {
       "config": "json"

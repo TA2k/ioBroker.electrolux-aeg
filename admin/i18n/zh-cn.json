@@ -1,8 +1,8 @@
 {
+  "aeg": "AEG",
   "appEmail": "应用电子邮件",
-  "appPassword": "应用密码",
   "appName": "应用名称",
-  "updateInterval": "更新间隔（分钟）",
+  "appPassword": "应用密码",
   "electrolux": "Electrolux",
-  "aeg": "AEG"
+  "updateInterval": "更新间隔（分钟）"
 }

@@ -1,0 +1,51 @@
+{
+  "applianceId": "123456789_00:AABBCCDD-EEFF00112233",
+  "applianceData": {
+    "applianceName": "Backofen",
+    "created": "2026-03-20T13:32:01.969Z",
+    "modelName": "OV"
+  },
+  "properties": {
+    "desired": {},
+    "reported": {
+      "applianceInfo": {
+        "capabilityHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "applianceType": "OV"
+      },
+      "doorState": "CLOSED",
+      "remoteControl": "NOT_SAFETY_RELEVANT_ENABLED",
+      "cpv": "00",
+      "targetTemperatureF": 302,
+      "targetTemperatureC": 150,
+      "program": "TRUE_FAN",
+      "runningTime": 0,
+      "applianceState": "READY_TO_START",
+      "targetMicrowavePower": 65535,
+      "alerts": [],
+      "networkInterface": {
+        "autoLocalTimeOffset": -2147483648,
+        "swVersion": "v4.0.0S_argo",
+        "timeZoneDatabaseName": "Etc/UTC",
+        "swAncAndRevision": "S00008458A",
+        "linkQualityIndicator": "VERY_GOOD",
+        "otaState": "IDLE",
+        "niuSwUpdateCurrentDescription": "A23642205A-S00008458A"
+      },
+      "foodProbeInsertionState": "NOT_INSERTED",
+      "cavityLight": false,
+      "waterTrayInsertionState": "INSERTED",
+      "waterTankEmpty": "STEAM_TANK_FULL",
+      "targetDuration": 0,
+      "startTime": -1,
+      "processPhase": "NONE",
+      "connectivityState": "connected",
+      "displayTemperatureC": 30,
+      "timeToEnd": -1,
+      "displayTemperatureF": 86
+    },
+    "metadataDesired": {},
+    "metadata": {}
+  },
+  "status": "enabled",
+  "connectionState": "connected"
+}

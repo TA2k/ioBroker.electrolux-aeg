@@ -1,6 +1,6 @@
 {
   "name": "iobroker.electrolux-aeg",
-  "version": "0.0.14",
+  "version": "0.1.0",
   "description": "Adapter for Electrolux and AEG",
   "author": {
     "name": "TA2k",
@@ -61,7 +61,8 @@
     "check": "tsc --noEmit -p tsconfig.check.json",
     "lint": "eslint .",
     "translate": "translate-adapter",
-    "release": "release-script --all"
+    "release": "release-script --all",
+    "pr:objects": "npx --yes --package @iobroker/repochecker -- node tools/checkObjectStructure.js"
   },
   "bugs": {
     "url": "https://github.com/TA2k/ioBroker.electrolux-aeg/issues"
