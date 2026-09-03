@@ -40,6 +40,10 @@
     "globals": "^17.10.0",
     "typescript": "~6.0.3"
   },
+  "overrides": {
+    "diff": "^9.0.0",
+    "serialize-javascript": "^7.1.1"
+  },
   "main": "main.js",
   "files": [
     "!CHANGELOG_OLD.md",
