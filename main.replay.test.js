@@ -533,6 +533,72 @@ describe('the WebSocket reconnect chain', () => {
     expect(reconnectsPending(adapter)).to.equal(1);
   });
 
+  /**
+   * The error handler refreshes the token before it reconnects, so the assertions
+   * have to wait for that promise chain to settle.
+   */
+  function settled() {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it('refreshes the token when the upgrade is answered with a 403', async () => {
+    const { adapter, requests, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+    const tokensBefore = requestsTo(requests, 'authorization/api/v1/token').length;
+
+    // What the cloud sends once the access token has expired: the upgrade is
+    // rejected, and reconnecting with the same token would only repeat it.
+    sockets[0].emit('error', new Error('Unexpected server response: 403'));
+    await settled();
+
+    expect(requestsTo(requests, 'authorization/api/v1/token')).to.have.length(tokensBefore + 1);
+    // The refresh reconnects on its own - no 5 s retry with the dead token was armed.
+    expect(sockets).to.have.length(2);
+    expect(reconnectsPending(adapter)).to.equal(0);
+  });
+
+  it('does not re-authenticate twice in a row for the same dead socket', async () => {
+    const { adapter, requests, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+    sockets[0].emit('error', new Error('Unexpected server response: 403'));
+    await settled();
+    const tokensAfterFirst = requestsTo(requests, 'authorization/api/v1/token').length;
+
+    // A 403 that survives a fresh token is not a token problem; the plain reconnect
+    // has to take over instead of asking the auth endpoint every five seconds.
+    sockets[1].emit('error', new Error('Unexpected server response: 403'));
+    await settled();
+
+    expect(requestsTo(requests, 'authorization/api/v1/token')).to.have.length(tokensAfterFirst);
+    expect(reconnectsPending(adapter)).to.equal(1);
+  });
+
+  it('reconnects without a refresh for an error that is not an auth failure', async () => {
+    const { adapter, requests, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+    const tokensBefore = requestsTo(requests, 'authorization/api/v1/token').length;
+
+    sockets[0].emit('error', new Error('read ECONNRESET'));
+    await settled();
+
+    expect(requestsTo(requests, 'authorization/api/v1/token')).to.have.length(tokensBefore);
+    expect(reconnectsPending(adapter)).to.equal(1);
+  });
+
+  it('falls back to the plain reconnect when the refresh fails too', async () => {
+    const { adapter, sockets, routes } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+    /** @type {any} */ (routes)['authorization/api/v1/token'] = Object.assign(new Error('refresh rejected'), {
+      response: { status: 401, data: {} },
+    });
+
+    sockets[0].emit('error', new Error('Unexpected server response: 403'));
+    await settled();
+
+    expect(sockets).to.have.length(1);
+    expect(reconnectsPending(adapter)).to.equal(1);
+  });
+
   it('ignores a socket that was already replaced', async () => {
     const { adapter, sockets } = createTestAdapter({ websocket: true });
     await adapter.onReady();
@@ -544,5 +610,56 @@ describe('the WebSocket reconnect chain', () => {
     // A late close of the predecessor changes nothing.
     sockets[0].emit('close');
     expect(reconnectsPending(adapter)).to.equal(0);
+  });
+});
+
+describe('the WebSocket push', () => {
+  /**
+   * The message listener is async and nothing awaits it, so the assertions have to
+   * wait for its promise chain to settle.
+   */
+  function settled() {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  /**
+   * @param {Array<{Name: string, Value: any}>} metrics
+   */
+  function push(metrics) {
+    return JSON.stringify({ Payload: { Appliances: [{ ApplianceId: RAW_ID, Metrics: metrics }] } });
+  }
+
+  it('writes a pushed metric into the reported tree and the derived states', async () => {
+    const { adapter, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+
+    sockets[0].emit(
+      'message',
+      push([
+        { Name: 'displayTemperatureC', Value: 116 },
+        { Name: 'applianceState', Value: 'RUNNING' },
+      ]),
+      false,
+    );
+    await settled();
+
+    // Until 2026-09-02 a push landed in `events` alone and every state below
+    // `status` stayed as stale as the last poll.
+    const reported = await adapter.getStateAsync(SAFE_ID + '.status.properties.reported.displayTemperatureC');
+    expect(reported && reported.val).to.equal(116);
+    const events = await adapter.getStateAsync(SAFE_ID + '.events.displayTemperatureC');
+    expect(events && events.val).to.equal(116);
+    const running = await adapter.getStateAsync(SAFE_ID + '.status.running');
+    expect(running && running.val).to.equal(true);
+  });
+
+  it('survives a message that is not JSON', async () => {
+    const { adapter, sockets } = createTestAdapter({ websocket: true });
+    await adapter.onReady();
+
+    sockets[0].emit('message', 'not json', false);
+    await settled();
+
+    expect(/** @type {any} */ (adapter).logs.join(' ')).to.contain('Could not parse the WebSocket message');
   });
 });

@@ -28,6 +28,9 @@ const REQUEST_TIMEOUT_MS = 30 * 1000;
 // The admin UI offers the same bounds, so a value outside them was edited by hand.
 const MIN_UPDATE_INTERVAL_MINUTES = 1;
 const LOGOUT_TIMEOUT_MS = 2 * 1000;
+// A 403 that survives a fresh token is not a token problem, so re-authenticating on
+// every reconnect would only hammer the auth endpoint every five seconds.
+const WS_AUTH_REFRESH_MIN_GAP_MS = 60 * 1000;
 const MAX_UPDATE_INTERVAL_MINUTES = 24 * 60;
 const DEFAULT_UPDATE_INTERVAL_MINUTES = 10;
 
@@ -41,7 +44,13 @@ class ElectroluxAeg extends utils.Adapter {
       name: 'electrolux-aeg',
     });
     this.on('ready', this.onReady.bind(this));
-    this.on('stateChange', this.onStateChange.bind(this));
+    // js-controller does not await the listener, so a rejected state change would
+    // surface as an unhandled rejection and take the whole instance down.
+    this.on('stateChange', (id, state) => {
+      this.onStateChange(id, state).catch((error) => {
+        this.log.error('Could not handle the change of ' + id + ': ' + ((error && error.message) || String(error)));
+      });
+    });
     this.on('unload', this.onUnload.bind(this));
     this.deviceArray = []; // Raw appliance IDs for API calls.
     this.deviceIdMap = {}; // Sanitized ioBroker ID -> raw appliance ID.
@@ -65,6 +74,7 @@ class ElectroluxAeg extends utils.Adapter {
     /** @type {ioBroker.Timeout | null | undefined} */
     this.reconnectWebSocketTimeout = null;
     this.unloading = false;
+    this.lastWebSocketAuthRefresh = 0; // Throttle for the token refresh a 403 on the socket triggers.
     this.session = {};
     this.ws = null;
     this.types = {
@@ -1254,21 +1264,29 @@ class ElectroluxAeg extends utils.Adapter {
         return;
       }
       this.logDebugData(json);
-      if (json.applianceId) {
-        await this.applyStatus(this.sanitizeObjectId(json.applianceId), json);
-      }
-      if (json.Payload && json.Payload.Appliances) {
-        for (const appliance of json.Payload.Appliances) {
-          await this.parseJson(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
-          // The metrics are the same fields the poll reports, only pushed as they
-          // change. Without this they would live in `events` alone and the reported
-          // tree - and with it every derived and control state - would stay as stale
-          // as the last poll.
-          const reported = metricsToReported(appliance.Metrics);
-          if (Object.keys(reported).length) {
-            await this.applyStatus(this.sanitizeObjectId(appliance.ApplianceId), { properties: { reported: reported } });
+      // Nothing awaits this listener, so a rejection here would end up as an
+      // unhandled rejection - which Node turns into a dead adapter process.
+      try {
+        if (json.applianceId) {
+          await this.applyStatus(this.sanitizeObjectId(json.applianceId), json);
+        }
+        if (json.Payload && json.Payload.Appliances) {
+          for (const appliance of json.Payload.Appliances) {
+            await this.parseJson(appliance.ApplianceId + '.events', appliance.Metrics, { channelName: 'Live Events' });
+            // The metrics are the same fields the poll reports, only pushed as they
+            // change. Without this they would live in `events` alone and the reported
+            // tree - and with it every derived and control state - would stay as stale
+            // as the last poll.
+            const reported = metricsToReported(appliance.Metrics);
+            if (Object.keys(reported).length) {
+              await this.applyStatus(this.sanitizeObjectId(appliance.ApplianceId), {
+                properties: { reported: reported },
+              });
+            }
           }
         }
+      } catch (error) {
+        this.log.error('Could not process the WebSocket message: ' + ((error && error.message) || String(error)));
       }
     });
     socket.on('close', () => {
@@ -1282,15 +1300,43 @@ class ElectroluxAeg extends utils.Adapter {
       this.log.debug('WebSocket closed');
       this.scheduleWebSocketReconnect();
     });
-    socket.on('error', (error) => {
-      this.log.error('WebSocket error: ' + String(error));
+    socket.on('error', async (error) => {
+      const message = String(error);
+      this.log.error('WebSocket error: ' + message);
+      const current = this.ws === socket;
+      // A 403 on the upgrade means the access token died before its refresh timer
+      // fired. Reconnecting with that same dead token only repeats the 403 until the
+      // timer arrives - 3 min 41 s without a push on the live host on 2026-09-03 -
+      // so refresh first; refreshToken() reconnects and reschedules by itself.
+      // Dropping the reference before the close keeps the close handler from arming
+      // a reconnect that would race the refresh with the token that just failed.
+      const reauthenticate =
+        current &&
+        message.includes('403') &&
+        !this.unloading &&
+        Date.now() - this.lastWebSocketAuthRefresh > WS_AUTH_REFRESH_MIN_GAP_MS;
+      if (reauthenticate) {
+        this.ws = null;
+      }
       try {
         socket.close();
       } catch (e) {
         this.log.debug('ws.close() failed: ' + e);
       }
-      if (this.ws !== socket) {
+      if (!current) {
         return;
+      }
+      if (reauthenticate) {
+        this.lastWebSocketAuthRefresh = Date.now();
+        try {
+          const refreshed = await this.refreshToken();
+          if (refreshed && refreshed.ok) {
+            return;
+          }
+        } catch (e) {
+          // Nothing awaits this listener; a rejection would end the process.
+          this.log.error('Could not refresh the token after the WebSocket was rejected: ' + e);
+        }
       }
       this.scheduleWebSocketReconnect();
     });
