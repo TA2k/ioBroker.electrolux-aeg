@@ -53,7 +53,7 @@ The adapter computes a few convenience states from the raw payload, so scripts d
 
 ## Changelog
 
-### **WORK IN PROGRESS**
+### 1.0.0 (2026-09-04)
 
 - Breaking: WebSocket updates no longer create a second object tree. Values from `<appliance>.properties.*` now live under `<appliance>.status.*`, and the old tree is deleted on the first start. Update scripts, aliases, VIS and history settings.
 - Breaking: `status.finishTime` is a number in milliseconds since the epoch instead of an ISO 8601 string, and `status.timeToEndMinutes` is gone - `status.properties.reported.timeToEnd` carries the remaining time in seconds with a role and a unit.
@@ -91,26 +91,6 @@ The adapter computes a few convenience states from the raw payload, so scripts d
 
 - Republish the latest repository review fixes with npm provenance.
 - Remove obsolete ESLint and Prettier dependencies after migrating to `@iobroker/eslint-config`.
-
-### 0.0.10 (2026-07-03)
-
-- Republish the 0.0.9 migration fixes with npm provenance.
-
-### 0.0.9 (2026-07-03)
-
-- Breaking: sanitize appliance object IDs. Characters like `:` are replaced with `_`; update scripts, aliases, VIS and history settings that reference old IDs.
-- Remove old unsanitized appliance object trees after creating the new sanitized objects.
-- Handle temporary Electrolux API gateway timeouts without error log spam
-
-### 0.0.8 (2026-06-29)
-
-- Hardened login, token refresh and WebSocket reconnect
-- Added active alert summary states under `.status.activeAlert*`
-- Fixed brand parameter for AEG accounts
-
-### 0.0.6 (2025-12-09)
-
-- fix refresh token
 
 Older changes are documented in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 

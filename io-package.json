@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "electrolux-aeg",
-    "version": "0.0.14",
+    "version": "1.0.0",
     "news": {
-      "NEXT": {
+      "1.0.0": {
         "en": "breaking object tree cleanup, derived and writable control states, session reuse after a restart, WebSocket pushes now feed the status tree, and hardened logging and error handling",
         "de": "aufgeräumter Objektbaum mit Breaking Changes, abgeleitete und schreibbare Control-States, Sitzung wird nach einem Neustart weiterverwendet, WebSocket-Pushes schreiben in den Status-Baum, und gehärtetes Logging und Fehlerbehandlung",
         "ru": "переработанное дерево объектов с несовместимыми изменениями, производные и записываемые состояния управления, сессия повторно используется после перезапуска, push-сообщения WebSocket попадают в дерево состояния, а также усиленное логирование и обработка ошибок",
