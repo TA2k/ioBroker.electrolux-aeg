@@ -3,6 +3,19 @@
     "name": "electrolux-aeg",
     "version": "0.0.14",
     "news": {
+      "NEXT": {
+        "en": "breaking object tree cleanup, derived and writable control states, session reuse after a restart, WebSocket pushes now feed the status tree, and hardened logging and error handling",
+        "de": "aufgeräumter Objektbaum mit Breaking Changes, abgeleitete und schreibbare Control-States, Sitzung wird nach einem Neustart weiterverwendet, WebSocket-Pushes schreiben in den Status-Baum, und gehärtetes Logging und Fehlerbehandlung",
+        "ru": "переработанное дерево объектов с несовместимыми изменениями, производные и записываемые состояния управления, сессия повторно используется после перезапуска, push-сообщения WebSocket попадают в дерево состояния, а также усиленное логирование и обработка ошибок",
+        "pt": "limpeza da árvore de objetos com alterações incompatíveis, estados derivados e estados de controlo graváveis, a sessão é reutilizada após um reinício, os pushes do WebSocket alimentam a árvore de estado e registo e tratamento de erros reforçados",
+        "nl": "opgeschoonde objectboom met breaking changes, afgeleide en schrijfbare control-states, de sessie wordt na een herstart hergebruikt, WebSocket-pushes vullen de status-boom, en gehard loggen en foutafhandeling",
+        "fr": "arborescence d'objets nettoyée avec des changements incompatibles, états dérivés et états de commande inscriptibles, la session est réutilisée après un redémarrage, les push WebSocket alimentent l'arborescence d'état, et journalisation et gestion des erreurs renforcées",
+        "it": "albero degli oggetti ripulito con modifiche non retrocompatibili, stati derivati e stati di controllo scrivibili, la sessione viene riutilizzata dopo un riavvio, i push WebSocket alimentano l'albero di stato e logging e gestione degli errori rafforzati",
+        "es": "árbol de objetos depurado con cambios incompatibles, estados derivados y estados de control escribibles, la sesión se reutiliza tras un reinicio, los push de WebSocket alimentan el árbol de estado y registro y manejo de errores reforzados",
+        "pl": "uporządkowane drzewo obiektów ze zmianami łamiącymi zgodność, stany pochodne i zapisywalne stany sterowania, sesja jest ponownie używana po restarcie, pushe WebSocket zasilają drzewo stanu oraz wzmocnione logowanie i obsługa błędów",
+        "uk": "перероблене дерево об'єктів із несумісними змінами, похідні та записувані стани керування, сесія повторно використовується після перезапуску, push-повідомлення WebSocket наповнюють дерево стану, а також посилене журналювання та обробка помилок",
+        "zh-cn": "对象树整理（包含不兼容变更）、派生状态与可写控制状态、重启后复用会话、WebSocket 推送写入状态树，以及更稳健的日志与错误处理"
+      },
       "0.0.14": {
         "en": "button states are now write-only, remote command names from the API are sanitized before they are used as object ids, websocket debug logs are redacted and logout finishes before unload",
         "de": "Button-States sind jetzt nur schreibbar, Remote-Befehlsnamen aus der API werden vor der Nutzung als Objekt-ID bereinigt, WebSocket-Debug-Logs werden geschwärzt und der Logout wird vor dem Entladen abgewartet",
