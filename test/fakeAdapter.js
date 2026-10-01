@@ -111,7 +111,7 @@ class FakeAdapter extends EventEmitter {
    *
    * `lc` follows the real rule - it moves to `ts` when the value changes and is kept
    * otherwise - because that is what survives the parser writing the same value again.
-   * ponytail: only states that were written with an explicit `ts` carry `ts`/`lc` at
+   * Known limit: only states that were written with an explicit `ts` carry `ts`/`lc` at
    * all, so the plain `{val, ack}` assertions of the other tests stay readable. Give
    * every state a `ts` here if a test ever needs to compare write times.
    *
