@@ -54,9 +54,6 @@
       "variant": "outlined",
       "showProcess": true,
       "timeout": 35000,
-      "result": {
-        "loginOk": "loginOk"
-      },
       "error": {
         "loginMissing": "loginMissing",
         "loginRejected": "loginRejected",

@@ -1456,6 +1456,33 @@ class ElectroluxAeg extends utils.Adapter {
       });
   }
   /**
+   * Translate a text of the settings page into the system language.
+   *
+   * json-config 10 alerts the text mapped to a success answer and then the raw answer again, and
+   * admin 8 shows only the last of the two, so a success text has to arrive already translated.
+   *
+   * @param {string} key key in admin/i18n
+   * @returns {Promise<string>}
+   */
+  async translate(key) {
+    const config = await this.getForeignObjectAsync('system.config').catch(() => null);
+    for (const language of [config && config.common && config.common.language, 'en']) {
+      if (typeof language !== 'string' || !/^[a-z]{2}(-[a-z]{2})?$/.test(language)) {
+        continue;
+      }
+      try {
+        const translated = require('./admin/i18n/' + language + '.json')[key];
+        if (typeof translated === 'string' && translated) {
+          return translated;
+        }
+      } catch {
+        // no file for this language
+      }
+    }
+    return key;
+  }
+
+  /**
    * Answers the "Test login" button of the settings page. Only the Gigya login is tried, with the
    * values typed into the page, so a wrong email, password or app shows up before saving. The
    * running session is not touched, and neither the password nor the answer is logged.
@@ -1511,7 +1538,7 @@ class ElectroluxAeg extends utils.Adapter {
         const code = (failure && failure.response && failure.response.data && failure.response.data.errorCode) || (data && data.errorCode) || '';
         this.log.info('Login test from the settings page: ' + outcome + (status ? ' (' + status + ')' : '') + (code ? ' ' + code : ''));
       }
-      const answers = { ok: { result: 'loginOk' }, rejected: { error: 'loginRejected' }, failed: { error: 'loginFailed' }, unreachable: { error: 'loginUnreachable' } };
+      const answers = { ok: { result: await this.translate('loginOk') }, rejected: { error: 'loginRejected' }, failed: { error: 'loginFailed' }, unreachable: { error: 'loginUnreachable' } };
       reply(answers[outcome]);
     } finally {
       this.loginTestRunning = false;

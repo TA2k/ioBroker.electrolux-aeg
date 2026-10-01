@@ -268,10 +268,28 @@ describe('adapter flow with the live oven fixtures', () => {
     it('accepts working credentials with the values and the app typed into the page', async () => {
       const { adapter, requests } = createTestAdapter();
 
-      expect(await ask(adapter, valid)).to.deep.equal({ result: 'loginOk' });
+      expect(await ask(adapter, valid)).to.deep.equal({ result: 'Email and password are correct. Save and close to start the adapter.' });
       const login = requestsTo(requests, 'accounts.login')[0];
       expect(login.data).to.include({ loginID: 'typed@example.com', password: 'typed', apiKey: '4_JZvZObbVWc1YROHF9e6y8A' });
     });
+
+    it('answers a working login in the system language', async () => {
+      const { adapter } = createTestAdapter();
+      /** @type {any} */ (adapter).systemLanguage = 'de';
+
+      expect(await ask(adapter, valid)).to.deep.equal({
+        result: 'E-Mail und Passwort sind richtig. Speichern und schließen, um den Adapter zu starten.',
+      });
+    });
+
+    for (const language of ['xx', '../../package', 'DE', 42]) {
+      it('falls back to English for the system language ' + JSON.stringify(language), async () => {
+        const { adapter } = createTestAdapter();
+        /** @type {any} */ (adapter).systemLanguage = language;
+
+        expect(await ask(adapter, valid)).to.deep.equal({ result: 'Email and password are correct. Save and close to start the adapter.' });
+      });
+    }
 
     it('reports rejected credentials without logging the password', async () => {
       const failure = Object.assign(new Error('Request failed with status code 403'), {
@@ -313,7 +331,7 @@ describe('adapter flow with the live oven fixtures', () => {
     it('accepts the longest allowed email and password', async () => {
       const { adapter } = createTestAdapter();
 
-      expect(await ask(adapter, { ...valid, username: 'a'.repeat(254), password: 'x'.repeat(1024) })).to.deep.equal({ result: 'loginOk' });
+      expect(await ask(adapter, { ...valid, username: 'a'.repeat(254), password: 'x'.repeat(1024) })).to.deep.equal({ result: 'Email and password are correct. Save and close to start the adapter.' });
     });
 
     it('runs one test at a time', async () => {
@@ -327,7 +345,7 @@ describe('adapter flow with the live oven fixtures', () => {
       expect(await ask(adapter, valid)).to.deep.equal({ error: 'loginBusy' });
       release({ status: 200, data: { sessionInfo: { sessionToken: 't', sessionSecret: 's' } } });
       await first;
-      expect(/** @type {any} */ (adapter).sent.at(-1)).to.deep.equal({ result: 'loginOk' });
+      expect(/** @type {any} */ (adapter).sent.at(-1)).to.deep.equal({ result: 'Email and password are correct. Save and close to start the adapter.' });
       /** @type {any} */ (adapter).requestClient = client;
     });
 

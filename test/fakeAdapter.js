@@ -41,6 +41,8 @@ class FakeAdapter extends EventEmitter {
     this.subscriptions = [];
     /** @type {any[]} answers handed to sendTo, in order */
     this.sent = [];
+    /** @type {unknown} language system.config reports, undefined for no system.config */
+    this.systemLanguage = undefined;
     const record = (level) => (message) => this.logs.push(level + ': ' + message);
     this.log = { info: record('info'), warn: record('warn'), error: record('error'), debug: record('debug') };
   }
@@ -178,6 +180,13 @@ class FakeAdapter extends EventEmitter {
 
   sendTo(_to, _command, message) {
     this.sent.push(message);
+  }
+
+  /**
+   * @param {string} id
+   */
+  getForeignObjectAsync(id) {
+    return Promise.resolve(id === 'system.config' && this.systemLanguage !== undefined ? { common: { language: this.systemLanguage } } : null);
   }
 
   // The adapter arms 20 s command refreshes and the poll interval. Recording the
