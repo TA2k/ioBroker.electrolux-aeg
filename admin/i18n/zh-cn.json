@@ -4,5 +4,16 @@
   "appName": "应用名称",
   "appPassword": "应用密码",
   "electrolux": "Electrolux",
-  "updateInterval": "更新间隔（分钟）"
+  "updateInterval": "更新间隔（分钟）",
+  "testLogin": "测试登录",
+  "testLoginHelp": "使用本页上的值检查电子邮件和密码，不保存",
+  "loginOk": "电子邮件和密码正确。保存并关闭以启动适配器。",
+  "loginMissing": "请先输入电子邮件和密码。",
+  "loginFailed": "账户服务拒绝了登录。请先在应用中登录一次，然后重试。",
+  "loginUnreachable": "账户服务没有响应。请检查 ioBroker 的互联网连接后重试。",
+  "loginBusy": "登录测试已在运行。",
+  "connection": "连接",
+  "connected": "已连接",
+  "notConnected": "未连接",
+  "loginRejected": "电子邮件或密码错误，或者该账户属于另一个应用。请检查所选应用。"
 }

@@ -4,5 +4,16 @@
   "appName": "Nome do aplicativo",
   "appPassword": "Senha do aplicativo",
   "electrolux": "Electrolux",
-  "updateInterval": "Intervalo de atualização (em minutos)"
+  "updateInterval": "Intervalo de atualização (em minutos)",
+  "testLogin": "Testar login",
+  "testLoginHelp": "Verifica o e-mail e a senha com os valores desta página, sem salvar",
+  "loginOk": "O e-mail e a senha estão corretos. Salve e feche para iniciar o adaptador.",
+  "loginMissing": "Introduza primeiro o e-mail e a senha.",
+  "loginFailed": "O serviço de conta recusou o login. Inicie sessão uma vez na app e tente novamente.",
+  "loginUnreachable": "O serviço de conta não respondeu. Verifique a ligação à internet do ioBroker e tente novamente.",
+  "loginBusy": "Já está a decorrer um teste de login.",
+  "connection": "Conexão",
+  "connected": "Conectado",
+  "notConnected": "Não conectado",
+  "loginRejected": "O e-mail ou a senha estão errados, ou a conta pertence à outra app. Verifique a app selecionada."
 }

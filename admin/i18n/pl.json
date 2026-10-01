@@ -4,5 +4,16 @@
   "appName": "Nazwa aplikacji",
   "appPassword": "Hasło aplikacji",
   "electrolux": "Electrolux",
-  "updateInterval": "Interwał aktualizacji (w minutach)"
+  "updateInterval": "Interwał aktualizacji (w minutach)",
+  "testLogin": "Testuj logowanie",
+  "testLoginHelp": "Sprawdza e-mail i hasło z wartościami z tej strony, bez zapisywania",
+  "loginOk": "E-mail i hasło są poprawne. Zapisz i zamknij, aby uruchomić adapter.",
+  "loginMissing": "Najpierw wpisz e-mail i hasło.",
+  "loginFailed": "Usługa konta odrzuciła logowanie. Zaloguj się raz w aplikacji i spróbuj ponownie.",
+  "loginUnreachable": "Usługa konta nie odpowiedziała. Sprawdź połączenie internetowe ioBrokera i spróbuj ponownie.",
+  "loginBusy": "Test logowania już trwa.",
+  "connection": "Połączenie",
+  "connected": "Połączono",
+  "notConnected": "Nie połączono",
+  "loginRejected": "E-mail lub hasło jest nieprawidłowe albo konto należy do drugiej aplikacji. Sprawdź wybraną aplikację."
 }

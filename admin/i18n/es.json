@@ -4,5 +4,16 @@
   "appName": "Nombre de la aplicación",
   "appPassword": "Contraseña de la aplicación",
   "electrolux": "Electrolux",
-  "updateInterval": "Intervalo de actualización (en minutos)"
+  "updateInterval": "Intervalo de actualización (en minutos)",
+  "testLogin": "Probar inicio de sesión",
+  "testLoginHelp": "Comprueba el correo y la contraseña con los valores de esta página, sin guardar",
+  "loginOk": "El correo y la contraseña son correctos. Guarde y cierre para iniciar el adaptador.",
+  "loginMissing": "Introduzca primero el correo y la contraseña.",
+  "loginFailed": "El servicio de cuentas rechazó el inicio de sesión. Inicie sesión una vez en la app y vuelva a intentarlo.",
+  "loginUnreachable": "El servicio de cuentas no respondió. Compruebe la conexión a internet de ioBroker y vuelva a intentarlo.",
+  "loginBusy": "Ya se está ejecutando una prueba de inicio de sesión.",
+  "connection": "Conexión",
+  "connected": "Conectado",
+  "notConnected": "No conectado",
+  "loginRejected": "El correo o la contraseña son incorrectos, o la cuenta pertenece a la otra app. Compruebe la app seleccionada."
 }

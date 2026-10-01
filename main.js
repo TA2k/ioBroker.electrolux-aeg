@@ -14,7 +14,7 @@ const Json2iob = require('json2iob');
 const WebSocket = require('ws');
 const strictUriEncode = require('strict-uri-encode');
 const alertLabels = require('./lib/alertLabels.json');
-const { isTransientFetchError } = require('./lib/apiErrors');
+const { classifyLoginAnswer, isTransientFetchError } = require('./lib/apiErrors');
 const { getActiveAlerts, pickHighestSeverity } = require('./lib/alerts');
 const { deriveStatus, metricsToReported } = require('./lib/derived');
 const { buildCapabilityStates, buildCommandPayload, collapseValueLists } = require('./lib/capabilities');
@@ -33,6 +33,16 @@ const LOGOUT_TIMEOUT_MS = 2 * 1000;
 const WS_AUTH_REFRESH_MIN_GAP_MS = 60 * 1000;
 const MAX_UPDATE_INTERVAL_MINUTES = 24 * 60;
 const DEFAULT_UPDATE_INTERVAL_MINUTES = 10;
+// What a failed login means for the user. The adapter does not retry a failed first login, so
+// every text ends with the restart.
+const LOGIN_FAILURE_HINTS = {
+  rejected:
+    'Login rejected: email or password is wrong, or the account belongs to the other app. Check email, password and the app (Electrolux or AEG) in the instance settings, then restart the instance.',
+  failed:
+    'Login refused by the account service for a reason other than the password. Log in once in the Electrolux or AEG app, then restart the instance.',
+  unreachable:
+    'Login failed: the account service did not answer. Check the internet connection of ioBroker, then restart the instance.',
+};
 
 class ElectroluxAeg extends utils.Adapter {
   /**
@@ -52,6 +62,11 @@ class ElectroluxAeg extends utils.Adapter {
       });
     });
     this.on('unload', this.onUnload.bind(this));
+    this.on('message', (obj) => {
+      this.onMessage(obj).catch((error) => {
+        this.log.error('Could not answer the settings page: ' + ((error && error.message) || String(error)));
+      });
+    });
     this.deviceArray = []; // Raw appliance IDs for API calls.
     this.deviceIdMap = {}; // Sanitized ioBroker ID -> raw appliance ID.
     this.commandIdMap = {}; // Full remote state ID -> raw API command name.
@@ -74,6 +89,7 @@ class ElectroluxAeg extends utils.Adapter {
     /** @type {ioBroker.Timeout | null | undefined} */
     this.reconnectWebSocketTimeout = null;
     this.unloading = false;
+    this.loginTestRunning = false; // A login test from the settings page is in flight.
     this.lastWebSocketAuthRefresh = 0; // Throttle for the token refresh a 403 on the socket triggers.
     this.session = {};
     this.ws = null;
@@ -905,18 +921,18 @@ class ElectroluxAeg extends utils.Adapter {
       })
       .catch((error) => {
         this.logRequestError('Login request failed', error);
+        this.log.error(LOGIN_FAILURE_HINTS[classifyLoginAnswer(undefined, error)] || LOGIN_FAILURE_HINTS.failed);
       });
     if (!loginResponse) {
-      this.log.error('Login failed #1');
       this.setStateChanged('info.connection', false, true);
-
       return;
     }
     const sessionInfo = loginResponse.sessionInfo;
     if (!sessionInfo || !sessionInfo.sessionToken || !sessionInfo.sessionSecret) {
-      // Gigya reports a wrong user name or password as a body without a session,
-      // not as a rejected request.
+      // Gigya can also report a wrong user name or password as a body without a
+      // session instead of a rejected request.
       this.reportUnusableResponse('Login failed, the answer carries no session', loginResponse);
+      this.log.error(LOGIN_FAILURE_HINTS[classifyLoginAnswer(loginResponse)] || LOGIN_FAILURE_HINTS.failed);
       this.setStateChanged('info.connection', false, true);
       return;
     }
@@ -956,7 +972,9 @@ class ElectroluxAeg extends utils.Adapter {
         this.logRequestError('Login token request failed', error);
       });
     if (!jwt) {
-      this.log.error('Login failed #2');
+      this.log.error(
+        'Login failed: the account service accepted the password but handed out no login token. Restart the instance; if this repeats, the error above shows the answer of the cloud.',
+      );
       this.setStateChanged('info.connection', false, true);
       return;
     }
@@ -1437,6 +1455,69 @@ class ElectroluxAeg extends utils.Adapter {
         this.logRequestError('Logout failed', error);
       });
   }
+  /**
+   * Answers the "Test login" button of the settings page. Only the Gigya login is tried, with the
+   * values typed into the page, so a wrong email, password or app shows up before saving. The
+   * running session is not touched, and neither the password nor the answer is logged.
+   *
+   * @param {ioBroker.Message} obj
+   */
+  async onMessage(obj) {
+    if (!obj || !obj.callback || obj.command !== 'testLogin') {
+      return;
+    }
+    const reply = (answer) => this.sendTo(obj.from, obj.command, answer, obj.callback);
+    const message = obj.message && typeof obj.message === 'object' ? /** @type {Record<string, unknown>} */ (obj.message) : {};
+    const username = typeof message.username === 'string' ? message.username.trim() : '';
+    const password = typeof message.password === 'string' ? message.password : '';
+    const type = typeof message.type === 'string' && Object.hasOwn(this.types, message.type) ? message.type : '';
+    if (!username || !password || !type || username.length > 254 || password.length > 1024) {
+      reply({ error: 'loginMissing' });
+      return;
+    }
+    if (this.loginTestRunning) {
+      reply({ error: 'loginBusy' });
+      return;
+    }
+    this.loginTestRunning = true;
+    try {
+      /** @type {any} */
+      let data;
+      /** @type {any} */
+      let failure;
+      try {
+        const res = await this.requestClient({
+          method: 'post',
+          url: this.urls.gigya + '/accounts.login',
+          headers: { connection: 'close', 'Content-Type': 'application/x-www-form-urlencoded' },
+          data: {
+            apiKey: this.types[type].apikey,
+            format: 'json',
+            httpStatusCodes: 'true',
+            loginID: username,
+            nonce: Date.now(),
+            password,
+            sdk: 'Android_6.2.1',
+            targetEnv: 'mobile',
+          },
+        });
+        data = res && res.data;
+      } catch (error) {
+        failure = error;
+      }
+      const outcome = classifyLoginAnswer(data, failure);
+      if (outcome !== 'ok') {
+        const status = failure && failure.response ? failure.response.status : (failure && failure.code) || '';
+        const code = (failure && failure.response && failure.response.data && failure.response.data.errorCode) || (data && data.errorCode) || '';
+        this.log.info('Login test from the settings page: ' + outcome + (status ? ' (' + status + ')' : '') + (code ? ' ' + code : ''));
+      }
+      const answers = { ok: { result: 'loginOk' }, rejected: { error: 'loginRejected' }, failed: { error: 'loginFailed' }, unreachable: { error: 'loginUnreachable' } };
+      reply(answers[outcome]);
+    } finally {
+      this.loginTestRunning = false;
+    }
+  }
+
   /**
    * Is called when adapter shuts down - callback has to be called under any circumstances!
    * @param {() => void} callback

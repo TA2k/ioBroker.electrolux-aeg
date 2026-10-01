@@ -4,5 +4,16 @@
   "appName": "Nome dell'app",
   "appPassword": "Password dell'app",
   "electrolux": "Electrolux",
-  "updateInterval": "Intervallo di aggiornamento (in minuti)"
+  "updateInterval": "Intervallo di aggiornamento (in minuti)",
+  "testLogin": "Prova accesso",
+  "testLoginHelp": "Verifica e-mail e password con i valori di questa pagina, senza salvare",
+  "loginOk": "E-mail e password sono corrette. Salva e chiudi per avviare l’adattatore.",
+  "loginMissing": "Inserisci prima e-mail e password.",
+  "loginFailed": "Il servizio account ha rifiutato l’accesso. Accedi una volta nell’app, poi riprova.",
+  "loginUnreachable": "Il servizio account non ha risposto. Controlla la connessione internet di ioBroker e riprova.",
+  "loginBusy": "Una prova di accesso è già in corso.",
+  "connection": "Connessione",
+  "connected": "Connesso",
+  "notConnected": "Non connesso",
+  "loginRejected": "E-mail o password errate, oppure l’account appartiene all’altra app. Controlla l’app selezionata."
 }

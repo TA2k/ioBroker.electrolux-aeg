@@ -4,5 +4,16 @@
   "appName": "App name",
   "updateInterval": "Update interval (in minutes)",
   "electrolux": "Electrolux",
-  "aeg": "AEG"
+  "aeg": "AEG",
+  "testLogin": "Test login",
+  "testLoginHelp": "Checks email and password with the values on this page, without saving",
+  "loginOk": "Email and password are correct. Save and close to start the adapter.",
+  "loginMissing": "Enter email and password first.",
+  "loginFailed": "The account service refused the login. Log in once in the app, then try again.",
+  "loginUnreachable": "The account service did not answer. Check the internet connection of ioBroker and try again.",
+  "loginBusy": "A login test is already running.",
+  "connection": "Connection",
+  "connected": "Connected",
+  "notConnected": "Not connected",
+  "loginRejected": "Email or password is wrong, or the account belongs to the other app. Check the app selection."
 }

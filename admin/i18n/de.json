@@ -4,5 +4,16 @@
   "appName": "App-Name",
   "appPassword": "App-Passwort",
   "electrolux": "Electrolux",
-  "updateInterval": "Aktualisierungsintervall (in Minuten)"
+  "updateInterval": "Aktualisierungsintervall (in Minuten)",
+  "testLogin": "Login testen",
+  "testLoginHelp": "Prüft E-Mail und Passwort mit den Werten auf dieser Seite, ohne zu speichern",
+  "loginOk": "E-Mail und Passwort sind richtig. Speichern und schließen, um den Adapter zu starten.",
+  "loginMissing": "Bitte zuerst E-Mail und Passwort eingeben.",
+  "loginFailed": "Der Kontodienst hat die Anmeldung abgelehnt. Bitte einmal in der App anmelden und es dann erneut versuchen.",
+  "loginUnreachable": "Der Kontodienst hat nicht geantwortet. Bitte die Internetverbindung von ioBroker prüfen und es erneut versuchen.",
+  "loginBusy": "Ein Login-Test läuft bereits.",
+  "connection": "Verbindung",
+  "connected": "Verbunden",
+  "notConnected": "Nicht verbunden",
+  "loginRejected": "E-Mail oder Passwort ist falsch, oder das Konto gehört zur anderen App. Bitte die App-Auswahl prüfen."
 }

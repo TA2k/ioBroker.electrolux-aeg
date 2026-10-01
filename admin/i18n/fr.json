@@ -4,5 +4,16 @@
   "appName": "Nom de l'application",
   "appPassword": "Mot de passe de l'application",
   "electrolux": "Electrolux",
-  "updateInterval": "Intervalle de mise à jour (en minutes)"
+  "updateInterval": "Intervalle de mise à jour (en minutes)",
+  "testLogin": "Tester la connexion",
+  "testLoginHelp": "Vérifie l’e-mail et le mot de passe avec les valeurs de cette page, sans enregistrer",
+  "loginOk": "L’e-mail et le mot de passe sont corrects. Enregistrez et fermez pour démarrer l’adaptateur.",
+  "loginMissing": "Saisissez d’abord l’e-mail et le mot de passe.",
+  "loginFailed": "Le service de compte a refusé la connexion. Connectez-vous une fois dans l’application, puis réessayez.",
+  "loginUnreachable": "Le service de compte n’a pas répondu. Vérifiez la connexion internet d’ioBroker et réessayez.",
+  "loginBusy": "Un test de connexion est déjà en cours.",
+  "connection": "Connexion",
+  "connected": "Connecté",
+  "notConnected": "Non connecté",
+  "loginRejected": "L’e-mail ou le mot de passe est incorrect, ou le compte appartient à l’autre application. Vérifiez l’application choisie."
 }

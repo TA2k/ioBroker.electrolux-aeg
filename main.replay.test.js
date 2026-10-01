@@ -81,7 +81,48 @@ describe('adapter flow with the live oven fixtures', () => {
       await adapter.onReady();
 
       expect(log(adapter)).to.contain('the answer carries no session');
+      expect(log(adapter)).to.contain('Login rejected: email or password is wrong');
       expect(requestsTo(requests, 'accounts.getJWT')).to.have.length(0);
+      expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
+    });
+
+    it('says what to check when the login is refused as a 403', async () => {
+      const failure = Object.assign(new Error('Request failed with status code 403'), {
+        response: { status: 403, data: { errorCode: 403042, errorMessage: 'invalid loginID or password' } },
+      });
+      const { adapter, requests } = createTestAdapter({ routes: { 'accounts.login': failure } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('Login rejected: email or password is wrong');
+      expect(log(adapter)).to.contain('then restart the instance');
+      expect(requestsTo(requests, 'accounts.getJWT')).to.have.length(0);
+    });
+
+    it('tells a login without answer apart from wrong credentials', async () => {
+      const failure = Object.assign(new Error('timeout of 30000ms exceeded'), { code: 'ECONNABORTED' });
+      const { adapter } = createTestAdapter({ routes: { 'accounts.login': failure } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('the account service did not answer');
+      expect(log(adapter)).to.not.contain('Login rejected');
+    });
+
+    it('names another account problem when the error code is not about the password', async () => {
+      const { adapter } = createTestAdapter({ routes: { 'accounts.login': { errorCode: 206002, errorMessage: 'Account Pending Verification' } } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('for a reason other than the password');
+    });
+
+    it('says what to do when the login token request fails', async () => {
+      const { adapter } = createTestAdapter({ routes: { 'accounts.getJWT': new Error('socket hang up') } });
+
+      await adapter.onReady();
+
+      expect(log(adapter)).to.contain('handed out no login token');
       expect(await adapter.getStateAsync('info.connection')).to.deep.equal({ val: false, ack: true });
     });
 
@@ -209,6 +250,105 @@ describe('adapter flow with the live oven fixtures', () => {
       expect(log).to.contain('403');
       expect(log).to.not.contain('secret');
       expect(log).to.not.contain('Bearer');
+    });
+  });
+
+  describe('login test from the settings page', () => {
+    /**
+     * @param {any} adapter
+     * @param {unknown} message
+     * @param {string} [command]
+     */
+    async function ask(adapter, message, command = 'testLogin') {
+      await adapter.onMessage({ command, message, from: 'system.adapter.admin.0', callback: { id: 1 } });
+      return adapter.sent[adapter.sent.length - 1];
+    }
+    const valid = { username: ' typed@example.com ', password: 'typed', type: 'electrolux' };
+
+    it('accepts working credentials with the values and the app typed into the page', async () => {
+      const { adapter, requests } = createTestAdapter();
+
+      expect(await ask(adapter, valid)).to.deep.equal({ result: 'loginOk' });
+      const login = requestsTo(requests, 'accounts.login')[0];
+      expect(login.data).to.include({ loginID: 'typed@example.com', password: 'typed', apiKey: '4_JZvZObbVWc1YROHF9e6y8A' });
+    });
+
+    it('reports rejected credentials without logging the password', async () => {
+      const failure = Object.assign(new Error('Request failed with status code 403'), {
+        response: { status: 403, data: { errorCode: 403042, errorMessage: 'invalid loginID or password' } },
+      });
+      const { adapter } = createTestAdapter({ routes: { 'accounts.login': failure } });
+
+      expect(await ask(adapter, { ...valid, password: 'wrong-pass' })).to.deep.equal({ error: 'loginRejected' });
+      expect(/** @type {any} */ (adapter).logs.join(' ')).to.not.contain('wrong-pass');
+    });
+
+    it('reports another account problem and a missing answer apart', async () => {
+      const pending = createTestAdapter({ routes: { 'accounts.login': { errorCode: 206002 } } });
+      expect(await ask(pending.adapter, valid)).to.deep.equal({ error: 'loginFailed' });
+      const offline = createTestAdapter({ routes: { 'accounts.login': Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }) } });
+      expect(await ask(offline.adapter, valid)).to.deep.equal({ error: 'loginUnreachable' });
+      expect(/** @type {any} */ (offline.adapter).loginTestRunning).to.equal(false);
+    });
+
+    for (const [name, message] of /** @type {[string, unknown][]} */ ([
+      ['no message', undefined],
+      ['a string message', 'user@example.com'],
+      ['an empty email', { ...valid, username: '  ' }],
+      ['no password', { username: 'a@b.c', type: 'aeg' }],
+      ['a numeric password', { ...valid, password: 1234 }],
+      ['an unknown app', { ...valid, type: 'miele' }],
+      ['an inherited property as app', { ...valid, type: 'toString' }],
+      ['an overlong email', { ...valid, username: 'a'.repeat(255) }],
+      ['an overlong password', { ...valid, password: 'x'.repeat(1025) }],
+    ])) {
+      it('refuses ' + name + ' without calling the cloud', async () => {
+        const { adapter, requests } = createTestAdapter();
+
+        expect(await ask(adapter, message)).to.deep.equal({ error: 'loginMissing' });
+        expect(requests).to.have.length(0);
+      });
+    }
+
+    it('accepts the longest allowed email and password', async () => {
+      const { adapter } = createTestAdapter();
+
+      expect(await ask(adapter, { ...valid, username: 'a'.repeat(254), password: 'x'.repeat(1024) })).to.deep.equal({ result: 'loginOk' });
+    });
+
+    it('runs one test at a time', async () => {
+      const { adapter } = createTestAdapter();
+      /** @type {(value: any) => void} */
+      let release = () => {};
+      const client = /** @type {any} */ (adapter).requestClient;
+      /** @type {any} */ (adapter).requestClient = () => new Promise((resolve) => (release = resolve));
+      const first = /** @type {any} */ (adapter).onMessage({ command: 'testLogin', message: valid, from: 'admin', callback: { id: 1 } });
+
+      expect(await ask(adapter, valid)).to.deep.equal({ error: 'loginBusy' });
+      release({ status: 200, data: { sessionInfo: { sessionToken: 't', sessionSecret: 's' } } });
+      await first;
+      expect(/** @type {any} */ (adapter).sent.at(-1)).to.deep.equal({ result: 'loginOk' });
+      /** @type {any} */ (adapter).requestClient = client;
+    });
+
+    it('ignores other commands and messages without callback', async () => {
+      const { adapter, requests } = createTestAdapter();
+
+      await ask(adapter, valid, 'other');
+      await /** @type {any} */ (adapter).onMessage({ command: 'testLogin', message: valid });
+      expect(/** @type {any} */ (adapter).sent).to.have.length(0);
+      expect(requests).to.have.length(0);
+    });
+
+    it('leaves the running session and the connection state alone', async () => {
+      const { adapter } = createTestAdapter();
+      await adapter.onReady();
+      const session = /** @type {any} */ (adapter).session;
+      const connection = await adapter.getStateAsync('info.connection');
+
+      await ask(adapter, { ...valid, username: 'other@example.com' });
+      expect(/** @type {any} */ (adapter).session).to.equal(session);
+      expect(await adapter.getStateAsync('info.connection')).to.deep.equal(connection);
     });
   });
 

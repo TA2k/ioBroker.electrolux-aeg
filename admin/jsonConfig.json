@@ -44,6 +44,45 @@
       ],
       "label": "appName"
     },
+    "_testLogin": {
+      "type": "sendTo",
+      "label": "testLogin",
+      "help": "testLoginHelp",
+      "command": "testLogin",
+      "jsonData": "{\"username\": \"${data.username}\", \"password\": \"${data.password}\", \"type\": \"${data.type}\"}",
+      "icon": "auth",
+      "variant": "outlined",
+      "showProcess": true,
+      "timeout": 35000,
+      "result": {
+        "loginOk": "loginOk"
+      },
+      "error": {
+        "loginMissing": "loginMissing",
+        "loginRejected": "loginRejected",
+        "loginFailed": "loginFailed",
+        "loginUnreachable": "loginUnreachable",
+        "loginBusy": "loginBusy"
+      },
+      "newLine": true,
+      "xs": 12,
+      "sm": 3,
+      "md": 3,
+      "lg": 3,
+      "xl": 3
+    },
+    "_connection": {
+      "type": "state",
+      "label": "connection",
+      "oid": "info.connection",
+      "trueText": "connected",
+      "falseText": "notConnected",
+      "xs": 12,
+      "sm": 3,
+      "md": 3,
+      "lg": 3,
+      "xl": 3
+    },
     "interval": {
       "type": "number",
       "newLine": true,

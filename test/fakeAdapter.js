@@ -39,6 +39,8 @@ class FakeAdapter extends EventEmitter {
     this.logs = [];
     /** @type {string[]} */
     this.subscriptions = [];
+    /** @type {any[]} answers handed to sendTo, in order */
+    this.sent = [];
     const record = (level) => (message) => this.logs.push(level + ': ' + message);
     this.log = { info: record('info'), warn: record('warn'), error: record('error'), debug: record('debug') };
   }
@@ -172,6 +174,10 @@ class FakeAdapter extends EventEmitter {
    */
   subscribeStates(pattern) {
     this.subscriptions.push(pattern);
+  }
+
+  sendTo(_to, _command, message) {
+    this.sent.push(message);
   }
 
   // The adapter arms 20 s command refreshes and the poll interval. Recording the
